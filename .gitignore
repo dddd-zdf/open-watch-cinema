@@ -1,0 +1,20 @@
+# User-owned runtime data stays local.
+local-data/*
+
+# Keep the documented media drop folder in the published repository,
+# but never publish the user's actual videos.
+!local-data/media/
+local-data/media/*
+!local-data/media/README.md
+
+# Optional observer environment and Python caches stay machine-local.
+observer/.venv/
+observer/__pycache__/
+*.pyc
+
+# Local logs and editor noise.
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
