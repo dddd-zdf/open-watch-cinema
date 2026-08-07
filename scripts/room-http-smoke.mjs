@@ -106,7 +106,8 @@ try {
 
   result = await request('/api/media');
   media = result.payload.items[0];
-  assert.equal(media.compatibilityStatus, 'ready');
+  assert.equal(media.compatibilityStatus, 'prepared');
+  assert.equal(result.payload.items[0].compatibilityNote.includes('Safest fallback'), true);
 
   result = await request('/api/rooms/open', {
     method: 'POST',

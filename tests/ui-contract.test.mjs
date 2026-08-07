@@ -90,6 +90,9 @@ test('viewer identity, danmaku preference, subtitles, and per-film progress stay
   assert.match(app, /owc-playback-progress-v1/);
   assert.match(app, /owc-subtitle-choices-v1/);
   assert.match(app, /owc-last-media-id/);
+  assert.match(app, /owc-direct-play-ready-v3/);
+  assert.match(app, /mediaPlaybackFingerprint/);
+  assert.match(app, /markBrowserDirectPlayReady/);
   assert.match(app, /srtToWebVtt/);
   assert.match(app, /mergeBilingualWebVtt/);
   assert.doesNotMatch(app, /from '\.\/subtitle-utils\.js'/);
@@ -116,6 +119,30 @@ test('film cards expose one-click AI preparation and confirmed cascade deletion'
   assert.match(app, /cascade:\s*true/);
   assert.match(app, /confirmMediaId:\s*item\.id/);
   assert.match(app, /className = 'media-delete-button'/);
+  assert.match(app, /let activeMediaPlayable = false;/);
+  assert.match(app, /playbackReadyForCurrentBrowser\(item\)/);
+  assert.match(app, /if \(playbackReadyForCurrentBrowser\(item\)\) return 'Ready';/);
+  assert.match(app, /if \(!playbackReadyForCurrentBrowser\(item\)\)/);
+  assert.match(app, /function canConfirmDirectPlay\(item\)/);
+  assert.match(app, /function confirmDirectPlayReady\(item\)/);
+  assert.match(app, /readyButton\.textContent = 'Mark Ready'/);
+  assert.match(app, /Confirm that picture and sound both work in this browser\./);
+  assert.match(app, /test picture & sound, then Mark Ready/);
+  assert.doesNotMatch(app, /webkitAudioDecodedByteCount|playbackProbeForItem|\/api\/media\/\$\{item\.id\}\/probe/);
+  assert.match(app, /openRoomButton\.disabled = !playbackReady \|\| Boolean\(activeRoom\)/);
+  assert.match(app, /className = 'media-action-buttons'/);
+  assert.match(css, /\.media-action-buttons\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\);/);
+  assert.match(css, /\.media-action-buttons \.ai-prepare-button\s*\{[\s\S]*?grid-column:\s*1 \/ -1;/);
+  assert.match(app, /extracting embedded subtitles…/);
+  assert.match(app, /subtitle tracks ready/);
+  assert.match(app, /playButton\.disabled = lockedByRoom \|\| preparationActive;/);
+  assert.doesNotMatch(app, /if \(item\.compatibilityStatus !== 'ready'\) return;/);
+  assert.match(app, /This browser could not play the original file\. Use Check & prepare playback below\./);
+  assert.match(app, /\/subtitles\/prepare/);
+  assert.doesNotMatch(server, /playbackProbeForItem|playbackProbeMatch|mediaProbeCache/);
+  assert.match(server, /extractSubtitleStreams/);
+  assert.match(server, /subtitlePrepareMatch/);
+  assert.doesNotMatch(server, /Prepare this film for Chrome before opening a room/);
   assert.match(app, /function aiExperienceWarning\(item\)/);
   assert.match(app, /Visual analysis is ready, but timed dialogue is missing/);
   assert.match(app, /Timed dialogue is ready, but visual analysis is missing/);
@@ -129,6 +156,29 @@ test('film cards expose one-click AI preparation and confirmed cascade deletion'
   assert.match(server, /deleteMediaCascadeRecords/);
 });
 
+test('playback repair is symptom-guided instead of browser-profile guessing', async () => {
+  const [html, css, app, server] = await Promise.all([
+    read('public/index.html'),
+    read('public/styles.css'),
+    read('public/app.js'),
+    read('server.mjs')
+  ]);
+
+  assert.match(html, /id="playbackRepairDialog"/);
+  assert.match(html, /name="playbackRepair" value="audio"/);
+  assert.match(html, /name="playbackRepair" value="video"/);
+  assert.match(html, /name="playbackRepair" value="remux"/);
+  assert.match(html, /name="playbackRepair" value="safe"/);
+  assert.match(app, /function choosePlaybackRepair\(item\)/);
+  assert.match(app, /JSON\.stringify\(\{ repairMode \}\)/);
+  assert.match(app, /case 'prepared': return 'Retest playback';/);
+  assert.match(app, /job\.replacementMediaId \|\| job\.mediaId/);
+  assert.match(server, /repairMode:\s*body\.repairMode/);
+  assert.match(server, /status:\s*'prepared'/);
+  assert.match(server, /prepareMediaPlayback/);
+  assert.match(css, /\.compatibility-badge\.status-prepared/);
+});
+
 test('first-time AI preparation asks which discovered dialogue track to use', async () => {
   const [html, css, app, server] = await Promise.all([
     read('public/index.html'),
@@ -139,7 +189,10 @@ test('first-time AI preparation asks which discovered dialogue track to use', as
 
   assert.match(html, /id="aiSubtitleDialog"/);
   assert.match(html, /id="aiSubtitleOptions"/);
-  assert.match(css, /\.ai-subtitle-dialog/);
+  assert.match(css, /\.ai-subtitle-dialog\s*\{[\s\S]*?max-height:\s*calc\(100dvh - 28px\);[\s\S]*?overflow:\s*hidden;/);
+  assert.match(css, /\.ai-subtitle-form\s*\{[\s\S]*?grid-template-rows:\s*auto auto auto minmax\(0, 1fr\) auto;[\s\S]*?overflow:\s*hidden;/);
+  assert.match(css, /\.ai-subtitle-options\s*\{[\s\S]*?min-height:\s*0;[\s\S]*?overflow-y:\s*auto;/);
+  assert.match(css, /\.ai-subtitle-actions\s*\{[\s\S]*?flex:\s*0 0 auto;/);
   assert.match(app, /function chooseAiDialogueTrack\(item\)/);
   assert.match(app, /await chooseAiDialogueTrack\(item\)/);
   assert.match(app, /JSON\.stringify\(dialogueTrackId \? \{ dialogueTrackId \} : \{\}\)/);
@@ -216,7 +269,10 @@ test('macOS has launch and optional observer setup entries', async () => {
 });
 
 test('wide screens switch between a library wing, a room wing, and a centered focus screen', async () => {
-  const css = await read('public/styles.css');
+  const [css, app] = await Promise.all([
+    read('public/styles.css'),
+    read('public/app.js')
+  ]);
 
   assert.match(css, /@media \(min-width: 1480px\) and \(min-height: 700px\)/);
   assert.match(css, /--browse-wing-width:\s*clamp\(304px, 19vw, 352px\);/);
@@ -224,8 +280,11 @@ test('wide screens switch between a library wing, a room wing, and a centered fo
   assert.match(css, /\.cinema-page:has\(\.cinema-workspace\.sidebar-open\) \.cinema-workspace,\s*\.cinema-page:has\(\.cinema-workspace\.sidebar-open\) \.library-section\s*\{[\s\S]*?max-width:\s*min\(/);
   assert.match(css, /@media \(min-width: 1480px\) and \(min-height: 700px\)[\s\S]*?\.cinema-workspace\s*\{\s*transition:\s*none;/);
   assert.match(css, /@media \(min-width: 1480px\) and \(min-height: 700px\)[\s\S]*?\.room-sidebar\s*\{[\s\S]*?will-change:\s*transform, opacity;[\s\S]*?transform 190ms/);
-  assert.match(css, /\.cinema-page:not\(:has\(\.room-state\.active, \.room-state\.archived\)\):not\(:has\(\.cinema-workspace\.sidebar-open\)\) \.library-section\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?grid-column:\s*2;[\s\S]*?grid-row:\s*2;/);
-  assert.match(css, /\.cinema-page:not\(:has\(\.room-state\.active, \.room-state\.archived\)\):not\(:has\(\.cinema-workspace\.sidebar-open\)\) \.media-strip\s*\{[\s\S]*?grid-auto-flow:\s*row;[\s\S]*?overflow-y:\s*auto;/);
+  assert.match(css, /\.cinema-page:not\(:has\(\.room-state\.active, \.room-state\.archived\)\):not\(:has\(\.cinema-workspace\.sidebar-open\)\) \.library-section\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?grid-column:\s*2;[\s\S]*?grid-row:\s*2;[\s\S]*?height:\s*var\(--cinema-workspace-height, auto\);[\s\S]*?max-height:\s*var\(--cinema-workspace-height, none\);/);
+  assert.match(css, /\.cinema-page:not\(:has\(\.room-state\.active, \.room-state\.archived\)\):not\(:has\(\.cinema-workspace\.sidebar-open\)\) \.media-strip\s*\{[\s\S]*?grid-auto-flow:\s*row;[\s\S]*?grid-auto-rows:\s*max-content;[\s\S]*?overflow-y:\s*auto;/);
+  assert.match(css, /\.cinema-page:not\(:has\(\.room-state\.active, \.room-state\.archived\)\):not\(:has\(\.cinema-workspace\.sidebar-open\)\) \.media-card\s*\{[\s\S]*?height:\s*auto;[\s\S]*?align-self:\s*start;/);
+  assert.match(app, /ResizeObserver/);
+  assert.match(app, /--cinema-workspace-height/);
 });
 
 test('cinema presentation uses a low-glare moonlight film palette', async () => {

@@ -146,6 +146,10 @@ const danmakuToggle = document.querySelector('#danmakuToggle');
 const subtitleSelect = document.querySelector('#subtitleSelect');
 const addSubtitleButton = document.querySelector('#addSubtitleButton');
 const subtitleFileInput = document.querySelector('#subtitleFileInput');
+const playbackRepairDialog = document.querySelector('#playbackRepairDialog');
+const playbackRepairDialogTitle = document.querySelector('#playbackRepairDialogTitle');
+const playbackRepairOptions = document.querySelector('#playbackRepairOptions');
+const playbackRepairConfirm = document.querySelector('#playbackRepairConfirm');
 const aiSubtitleDialog = document.querySelector('#aiSubtitleDialog');
 const aiSubtitleDialogTitle = document.querySelector('#aiSubtitleDialogTitle');
 const aiSubtitleOptions = document.querySelector('#aiSubtitleOptions');
@@ -178,10 +182,13 @@ const STORAGE = {
   playbackProgress: 'owc-playback-progress-v1',
   subtitleChoices: 'owc-subtitle-choices-v1',
   lastMedia: 'owc-last-media-id',
-  libraryCollapsed: 'owc-library-collapsed'
+  libraryCollapsed: 'owc-library-collapsed',
+  directPlayReady: 'owc-direct-play-ready-v3'
 };
 
 let activeMediaId = null;
+let activeMediaPlayable = false;
+const subtitleDiscoveryPromises = new Map();
 let currentItems = [];
 let activeRoom = null;
 let selectedRoom = null;
@@ -200,6 +207,7 @@ let lastProgressWriteAt = 0;
 let danmakuEnabled = localStorage.getItem(STORAGE.danmaku) !== 'false';
 let playbackProgress = readStoredObject(STORAGE.playbackProgress);
 let subtitleChoices = readStoredObject(STORAGE.subtitleChoices);
+let directPlayReady = readStoredObject(STORAGE.directPlayReady);
 let activeSubtitleObjectUrls = [];
 let subtitleLoadToken = 0;
 
@@ -218,6 +226,48 @@ function readStoredObject(key) {
 
 function writeStoredObject(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
+}
+
+function mediaPlaybackFingerprint(item) {
+  return `${item?.size || 0}:${item?.modifiedAt || ''}`;
+}
+
+function browserDirectPlayReady(item) {
+  return Boolean(item && directPlayReady[item.id] === mediaPlaybackFingerprint(item));
+}
+
+function markBrowserDirectPlayReady(item) {
+  if (!item) return;
+  directPlayReady[item.id] = mediaPlaybackFingerprint(item);
+  writeStoredObject(STORAGE.directPlayReady, directPlayReady);
+}
+
+function clearBrowserDirectPlayReady(item) {
+  if (!item || !(item.id in directPlayReady)) return;
+  delete directPlayReady[item.id];
+  writeStoredObject(STORAGE.directPlayReady, directPlayReady);
+}
+
+function playbackReadyForCurrentBrowser(item) {
+  return Boolean(item && (item.compatibilityStatus === 'ready' || browserDirectPlayReady(item)));
+}
+
+function canConfirmDirectPlay(item) {
+  return Boolean(
+    item
+    && item.id === activeMediaId
+    && activeMediaPlayable
+    && item.compatibilityStatus !== 'ready'
+    && !browserDirectPlayReady(item)
+  );
+}
+
+function confirmDirectPlayReady(item) {
+  if (!canConfirmDirectPlay(item)) return;
+  markBrowserDirectPlayReady(item);
+  renderMedia(currentItems);
+  renderRoomState();
+  setPlayerNotice('Marked Ready for this browser. Picture and sound were confirmed by the viewer.');
 }
 
 function formatBytes(bytes) {
@@ -337,6 +387,33 @@ function preferredAiDialogueTrackId(item) {
     if (chineseTrackId && tracks.some((track) => track.id === chineseTrackId)) return chineseTrackId;
   }
   return tracks.find((track) => track.default)?.id || tracks[0]?.id || null;
+}
+
+function choosePlaybackRepair(item) {
+  playbackRepairDialogTitle.textContent = `Repair playback for ${item.title}`;
+  const inputs = [...playbackRepairOptions.querySelectorAll('input[name="playbackRepair"]')];
+  for (const input of inputs) input.checked = false;
+  playbackRepairConfirm.disabled = true;
+
+  return new Promise((resolve) => {
+    const handleChange = () => {
+      playbackRepairConfirm.disabled = !playbackRepairOptions.querySelector('input[name="playbackRepair"]:checked');
+    };
+    const handleCancel = (event) => {
+      event.preventDefault();
+      playbackRepairDialog.close('cancel');
+    };
+    const handleClose = () => {
+      playbackRepairDialog.removeEventListener('cancel', handleCancel);
+      playbackRepairOptions.removeEventListener('change', handleChange);
+      const selected = playbackRepairOptions.querySelector('input[name="playbackRepair"]:checked');
+      resolve(playbackRepairDialog.returnValue === 'confirm' ? selected?.value || undefined : undefined);
+    };
+    playbackRepairOptions.addEventListener('change', handleChange);
+    playbackRepairDialog.addEventListener('cancel', handleCancel, { once: true });
+    playbackRepairDialog.addEventListener('close', handleClose, { once: true });
+    playbackRepairDialog.showModal();
+  });
 }
 
 function chooseAiDialogueTrack(item) {
@@ -513,6 +590,30 @@ function setupSubtitles(item) {
   void applySubtitleChoice(choice, { persist: false });
 }
 
+async function discoverEmbeddedSubtitles(item) {
+  if (!item || (item.subtitleTracks || []).length > 0) return item;
+  const existing = subtitleDiscoveryPromises.get(item.id);
+  if (existing) return existing;
+
+  const discovery = (async () => {
+    try {
+      const payload = await fetchJson(`/api/media/${item.id}/subtitles/prepare`, { method: 'POST' });
+      if (payload.media) {
+        Object.assign(item, payload.media);
+        if (activeMediaId === item.id) setupSubtitles(item);
+      }
+      return item;
+    } catch (error) {
+      subtitleDiscoveryPromises.delete(item.id);
+      console.warn('Embedded subtitle discovery failed:', error);
+      return item;
+    }
+  })();
+
+  subtitleDiscoveryPromises.set(item.id, discovery);
+  return discovery;
+}
+
 async function addLocalSubtitle(file) {
   const item = currentMedia();
   if (!item || !file) return;
@@ -566,6 +667,11 @@ function setLibraryCollapsed(collapsed, { persist = true } = {}) {
   if (persist) localStorage.setItem(STORAGE.libraryCollapsed, String(collapsed));
 }
 
+function syncLibraryBrowseHeight() {
+  const height = Math.round(cinemaWorkspace.getBoundingClientRect().height);
+  if (height > 0) librarySection.style.setProperty('--cinema-workspace-height', `${height}px`);
+}
+
 function applyMediaFilter() {
   const query = normalizeSearch(librarySearch.value);
   let visible = 0;
@@ -582,13 +688,20 @@ function applyMediaFilter() {
 }
 
 function compatibilityLabel(item) {
+  if (playbackReadyForCurrentBrowser(item)) return 'Ready';
   switch (item.compatibilityStatus) {
-    case 'ready': return 'Ready for Chrome';
     case 'checking': return 'Checking codecs';
     case 'processing': return 'Preparing file';
+    case 'prepared': return 'Retest playback';
     case 'error': return 'Preparation failed';
-    default: return 'Not checked yet';
+    default: return 'Not confirmed';
   }
+}
+
+function compatibilityBadgeStatus(item) {
+  return playbackReadyForCurrentBrowser(item)
+    ? 'ready'
+    : item.compatibilityStatus || 'unchecked';
 }
 
 function aiPackageLabel(item) {
@@ -831,7 +944,8 @@ function renderMessages() {
 
 function renderRoomState() {
   const item = currentMedia();
-  openRoomButton.disabled = !item || item.compatibilityStatus !== 'ready' || Boolean(activeRoom);
+  const playbackReady = Boolean(item && activeMediaPlayable && playbackReadyForCurrentBrowser(item));
+  openRoomButton.disabled = !playbackReady || Boolean(activeRoom);
   openRoomButton.hidden = Boolean(activeRoom);
   endRoomButton.hidden = !activeRoom;
   sidebarComposer.hidden = !roomIsWritable();
@@ -864,7 +978,10 @@ function escapeHtml(value) {
 }
 
 function chooseMedia(item, { force = false, seekMs = null, preserveRoom = false } = {}) {
-  if (item.compatibilityStatus !== 'ready') return;
+  if (['checking', 'processing'].includes(item.compatibilityStatus)) {
+    setPlayerNotice('This film is being prepared. Wait for the preparation to finish.', true);
+    return;
+  }
   if (!force && activeRoom && activeRoom.mediaId !== item.id) {
     setPlayerNotice('End the open room before changing the film.', true);
     return;
@@ -878,6 +995,7 @@ function chooseMedia(item, { force = false, seekMs = null, preserveRoom = false 
   }
 
   activeMediaId = item.id;
+  activeMediaPlayable = false;
   const storedSeekMs = !Number.isFinite(seekMs) && !preserveRoom && !activeRoom
     ? savedProgressFor(item.id)
     : null;
@@ -904,16 +1022,20 @@ async function pollPreparation(jobId, button, statusText) {
     const { job } = await fetchJson(`/api/jobs/${jobId}`);
 
     if (job.status === 'checking') {
-      button.textContent = 'Checking…';
+      button.textContent = 'Planning repair…';
     } else if (job.status === 'processing') {
-      button.textContent = `Preparing ${Math.round(job.progress || 0)}%`;
+      button.textContent = `${job.stage || 'Repairing'} ${Math.round(job.progress || 0)}%`;
     } else if (job.status === 'done') {
-      button.textContent = 'Ready';
-      statusText.hidden = true;
+      button.textContent = 'Retest playback';
+      statusText.hidden = false;
+      statusText.classList.remove('error');
+      statusText.textContent = job.message || 'Playback repair finished. Test picture and sound, then Mark Ready if both are good.';
       await refreshLibrary();
+      const replacement = currentItems.find((item) => item.id === (job.replacementMediaId || job.mediaId));
+      if (replacement) chooseMedia(replacement, { force: true });
       return;
     } else if (job.status === 'error') {
-      throw new Error(job.error || 'Compatibility preparation failed.');
+      throw new Error(job.error || 'Playback repair failed.');
     }
 
     await delay(900);
@@ -921,18 +1043,31 @@ async function pollPreparation(jobId, button, statusText) {
 }
 
 async function prepareMedia(item, button, statusText) {
+  const repairMode = await choosePlaybackRepair(item);
+  if (repairMode === undefined) return;
+
   button.disabled = true;
-  button.textContent = 'Starting…';
-  statusText.hidden = true;
+  button.textContent = 'Starting repair…';
+  statusText.hidden = false;
   statusText.classList.remove('error');
+  statusText.textContent = repairMode === 'audio'
+    ? 'Keeping the picture and converting only audio.'
+    : repairMode === 'video'
+      ? 'Keeping the audio and converting only video.'
+      : repairMode === 'remux'
+        ? 'Rewrapping the existing streams into MP4 without re-encoding.'
+        : 'Using the safest fallback while copying any stream that already matches it.';
 
   try {
-    const payload = await fetchJson(`/api/media/${item.id}/prepare`, { method: 'POST' });
+    const payload = await fetchJson(`/api/media/${item.id}/prepare`, {
+      method: 'POST',
+      body: JSON.stringify({ repairMode })
+    });
     await pollPreparation(payload.job.id, button, statusText);
   } catch (error) {
     console.error(error);
     button.disabled = false;
-    button.textContent = 'Try again';
+    button.textContent = 'Try playback repair again';
     statusText.textContent = error.message;
     statusText.hidden = false;
     statusText.classList.add('error');
@@ -962,6 +1097,7 @@ async function pollAiPreparation(jobId, button, statusText) {
 }
 
 async function prepareAiMedia(item, button, statusText) {
+  await discoverEmbeddedSubtitles(item);
   const dialogueTrackId = await chooseAiDialogueTrack(item);
   if (dialogueTrackId === undefined) return;
 
@@ -993,13 +1129,16 @@ async function prepareAiMedia(item, button, statusText) {
 function resetDeletedMediaState(mediaId) {
   delete playbackProgress[mediaId];
   delete subtitleChoices[mediaId];
+  delete directPlayReady[mediaId];
   writeStoredObject(STORAGE.playbackProgress, playbackProgress);
   writeStoredObject(STORAGE.subtitleChoices, subtitleChoices);
+  writeStoredObject(STORAGE.directPlayReady, directPlayReady);
   if (localStorage.getItem(STORAGE.lastMedia) === mediaId) {
     localStorage.removeItem(STORAGE.lastMedia);
   }
   if (activeMediaId === mediaId) {
     activeMediaId = null;
+    activeMediaPlayable = false;
     videoPlayer.pause();
     videoPlayer.removeAttribute('src');
     setupSubtitles(null);
@@ -1072,8 +1211,13 @@ function renderMedia(items) {
     playButton.type = 'button';
     playButton.className = 'media-play';
     const lockedByRoom = Boolean(activeRoom && activeRoom.mediaId !== item.id);
-    playButton.disabled = item.compatibilityStatus !== 'ready' || lockedByRoom;
-    playButton.title = lockedByRoom ? 'End the open room before changing films.' : '';
+    const preparationActive = ['checking', 'processing'].includes(item.compatibilityStatus);
+    playButton.disabled = lockedByRoom || preparationActive;
+    playButton.title = lockedByRoom
+      ? 'End the open room before changing films.'
+      : preparationActive
+        ? 'Wait for playback preparation to finish.'
+        : 'Try this film directly in the current browser.';
 
     const number = document.createElement('span');
     number.className = 'card-index';
@@ -1087,7 +1231,7 @@ function renderMedia(items) {
     details.textContent = `${item.extension.replace('.', '').toUpperCase()} · ${formatBytes(item.size)}${codecs ? ` · ${codecs.toUpperCase()}` : ''}`;
 
     const badge = document.createElement('span');
-    badge.className = `compatibility-badge status-${item.compatibilityStatus || 'unchecked'}`;
+    badge.className = `compatibility-badge status-${compatibilityBadgeStatus(item)}`;
     badge.textContent = compatibilityLabel(item);
 
     playButton.append(number, title, details, badge);
@@ -1106,20 +1250,36 @@ function renderMedia(items) {
 
     const actionArea = document.createElement('div');
     actionArea.className = 'media-actions';
+    const actionButtons = document.createElement('div');
+    actionButtons.className = 'media-action-buttons';
 
     const statusText = document.createElement('p');
     statusText.className = 'compatibility-note';
     statusText.hidden = !item.compatibilityError;
     statusText.textContent = item.compatibilityError || '';
 
-    if (item.compatibilityStatus !== 'ready') {
+    if (!playbackReadyForCurrentBrowser(item)) {
+      const readyButton = document.createElement('button');
+      readyButton.type = 'button';
+      readyButton.className = 'prepare-button ready-confirm-button';
+      readyButton.textContent = 'Mark Ready';
+      readyButton.disabled = !canConfirmDirectPlay(item);
+      readyButton.title = canConfirmDirectPlay(item)
+        ? 'Confirm that picture and sound both work in this browser.'
+        : 'Select this film and test picture and sound first.';
+      readyButton.addEventListener('click', () => confirmDirectPlayReady(item));
+
       const prepareButton = document.createElement('button');
       prepareButton.type = 'button';
       prepareButton.className = 'prepare-button';
-      prepareButton.textContent = item.compatibilityStatus === 'error' ? 'Try compatibility again' : 'Check & prepare playback';
+      prepareButton.textContent = item.compatibilityStatus === 'error'
+        ? 'Try playback repair again'
+        : item.compatibilityStatus === 'prepared'
+          ? 'Adjust playback repair'
+          : 'Check & prepare playback';
       prepareButton.disabled = ['checking', 'processing'].includes(item.compatibilityStatus);
       prepareButton.addEventListener('click', () => prepareMedia(item, prepareButton, statusText));
-      actionArea.append(prepareButton);
+      actionButtons.append(readyButton, prepareButton);
     }
 
     const aiButton = document.createElement('button');
@@ -1130,6 +1290,7 @@ function renderMedia(items) {
       : 'Prepare for AI viewing';
     aiButton.disabled = item.aiPackage?.status === 'ready' || item.aiPackage?.status === 'running';
     aiButton.addEventListener('click', () => prepareAiMedia(item, aiButton, statusText));
+    actionButtons.append(aiButton);
 
     const aiStatus = document.createElement('p');
     const aiWarning = aiExperienceWarning(item);
@@ -1137,7 +1298,7 @@ function renderMedia(items) {
     aiStatus.classList.toggle('warning', Boolean(aiWarning));
     aiStatus.textContent = aiWarning || aiPackageLabel(item);
 
-    actionArea.append(aiButton, aiStatus, statusText);
+    actionArea.append(actionButtons, aiStatus, statusText);
     card.append(actionArea);
 
     mediaGrid.append(card);
@@ -1145,8 +1306,9 @@ function renderMedia(items) {
 
   applyMediaFilter();
 
-  if (activeMediaId && !items.some((item) => item.id === activeMediaId && item.compatibilityStatus === 'ready')) {
+  if (activeMediaId && !items.some((item) => item.id === activeMediaId)) {
     activeMediaId = null;
+    activeMediaPlayable = false;
     videoPlayer.removeAttribute('src');
     setupSubtitles(null);
     videoPlayer.load();
@@ -1234,7 +1396,9 @@ async function refreshRooms({ restoreActive = true } = {}) {
 
     if (!activeMediaId) {
       const lastMediaId = localStorage.getItem(STORAGE.lastMedia);
-      const remembered = currentItems.find((item) => item.id === lastMediaId && item.compatibilityStatus === 'ready');
+      const remembered = currentItems.find((item) => (
+        item.id === lastMediaId && !['checking', 'processing'].includes(item.compatibilityStatus)
+      ));
       if (remembered) chooseMedia(remembered);
       else renderRoomState();
     } else {
@@ -1502,11 +1666,26 @@ screenFrame.addEventListener('focusout', hideScreenActionsSoon);
 videoPlayer.addEventListener('error', () => {
   const mediaError = videoPlayer.error;
   if (!mediaError) return;
-  setPlayerNotice('This reel could not be projected.', true);
+  activeMediaPlayable = false;
+  const item = currentMedia();
+  if (item?.compatibilityStatus !== 'ready') clearBrowserDirectPlayReady(item);
+  renderMedia(currentItems);
+  renderRoomState();
+  const canFallback = item && item.compatibilityStatus !== 'ready';
+  setPlayerNotice(
+    canFallback
+      ? 'This browser could not play the original file. Use Check & prepare playback below.'
+      : 'This reel could not be projected.',
+    true
+  );
 });
 
 videoPlayer.addEventListener('loadedmetadata', () => {
   if (!activeMediaId) return;
+  activeMediaPlayable = true;
+  const activeItem = currentMedia();
+  renderMedia(currentItems);
+  renderRoomState();
   if (pendingSeekMs !== null) {
     const durationMs = Number.isFinite(videoPlayer.duration) ? videoPlayer.duration * 1000 : Infinity;
     const safeSeekMs = Math.max(0, Math.min(durationMs, pendingSeekMs));
@@ -1521,12 +1700,33 @@ videoPlayer.addEventListener('loadedmetadata', () => {
   } else {
     resetTimeline(Math.round(videoPlayer.currentTime * 1000));
   }
-  const activeItem = currentMedia();
   const duration = Number.isFinite(videoPlayer.duration)
     ? `${Math.floor(videoPlayer.duration / 60)}m ${Math.round(videoPlayer.duration % 60)}s`
     : 'A timeless reel';
   const codecs = [activeItem?.videoCodec, activeItem?.audioCodec].filter(Boolean).join(' + ').toUpperCase();
-  setPlayerNotice(`${duration}${codecs ? ` · ${codecs}` : ''}`);
+  const baseNotice = `${duration}${codecs ? ` · ${codecs}` : ''}`;
+  const needsSubtitleDiscovery = Boolean(activeItem && (activeItem.subtitleTracks || []).length === 0);
+  const needsViewerConfirmation = Boolean(activeItem && !playbackReadyForCurrentBrowser(activeItem));
+  const initialNotes = [
+    baseNotice,
+    needsViewerConfirmation ? 'test picture & sound, then Mark Ready' : null,
+    needsSubtitleDiscovery ? 'extracting embedded subtitles…' : null
+  ].filter(Boolean);
+  setPlayerNotice(initialNotes.join(' · '));
+
+  if (needsSubtitleDiscovery) {
+    void discoverEmbeddedSubtitles(activeItem).then((updatedItem) => {
+      if (!updatedItem || currentMedia()?.id !== updatedItem.id) return;
+      const subtitleCount = (updatedItem.subtitleTracks || []).length;
+      const subtitleNote = subtitleCount
+        ? `${subtitleCount} subtitle tracks ready`
+        : 'no extractable subtitle tracks found';
+      const confirmationNote = playbackReadyForCurrentBrowser(updatedItem)
+        ? null
+        : 'test picture & sound, then Mark Ready';
+      setPlayerNotice([baseNotice, confirmationNote, subtitleNote].filter(Boolean).join(' · '));
+    });
+  }
 });
 
 videoPlayer.addEventListener('timeupdate', () => {
@@ -1555,5 +1755,11 @@ setInterval(() => {
 updateDanmakuControls();
 setSidebarView('messages');
 setLibraryCollapsed(localStorage.getItem(STORAGE.libraryCollapsed) === 'true', { persist: false });
+window.addEventListener('resize', syncLibraryBrowseHeight);
+if ('ResizeObserver' in window) {
+  const libraryHeightObserver = new ResizeObserver(syncLibraryBrowseHeight);
+  libraryHeightObserver.observe(cinemaWorkspace);
+}
+syncLibraryBrowseHeight();
 await refreshLibrary();
 await refreshRooms();

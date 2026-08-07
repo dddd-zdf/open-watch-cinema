@@ -7,6 +7,7 @@ import test from 'node:test';
 
 import {
   assessChromeCompatibility,
+  buildPlaybackRepairPlan,
   prepareMediaForChrome,
   probeMedia
 } from '../src/media-compatibility.mjs';
@@ -19,6 +20,43 @@ async function exists(filePath) {
     return false;
   }
 }
+
+test('symptom-guided repair plans preserve every media layer that already works', () => {
+  const probe = {
+    formatName: 'matroska,webm',
+    video: { codec_name: 'hevc', pix_fmt: 'yuv420p10le' },
+    audio: { codec_name: 'flac', channels: 2 }
+  };
+
+  assert.deepEqual(buildPlaybackRepairPlan('sample.mkv', probe, 'audio'), {
+    mode: 'audio',
+    targetExtension: '.mkv',
+    videoAction: 'copy',
+    audioAction: 'aac',
+    note: 'Minimal repair: keep the working picture and current container, and convert only audio to AAC.'
+  });
+
+  assert.deepEqual(buildPlaybackRepairPlan('sample.mkv', probe, 'video'), {
+    mode: 'video',
+    targetExtension: '.mkv',
+    videoAction: 'h264',
+    audioAction: 'copy',
+    note: 'Minimal repair: keep the working audio and current container, and convert only video to H.264.'
+  });
+
+  assert.deepEqual(buildPlaybackRepairPlan('sample.mkv', probe, 'remux'), {
+    mode: 'remux',
+    targetExtension: '.mp4',
+    videoAction: 'copy',
+    audioAction: 'copy',
+    note: 'Light repair: rewrap the existing video and audio streams into MP4 without re-encoding.'
+  });
+
+  const safe = buildPlaybackRepairPlan('sample.mkv', probe, 'safe');
+  assert.equal(safe.targetExtension, '.mp4');
+  assert.equal(safe.videoAction, 'h264');
+  assert.equal(safe.audioAction, 'aac');
+});
 
 test('one-click preparation converts a real MKV into a verified same-name MP4', async (context) => {
   const versionCheck = spawnSync('ffmpeg', ['-version'], { windowsHide: true });

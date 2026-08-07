@@ -1261,6 +1261,7 @@ video::cue(.en) {
   color: var(--danger);
 }
 
+.compatibility-badge.status-prepared,
 .compatibility-badge.status-processing,
 .compatibility-badge.status-checking {
   border-color: rgba(239, 166, 78, 0.42);
@@ -1277,6 +1278,24 @@ video::cue(.en) {
   border: 1px solid rgba(91, 164, 255, 0.16);
   border-radius: 9px 3px 9px 3px;
   background: rgba(0, 0, 0, 0.18);
+}
+
+.media-action-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.42rem;
+}
+
+.media-action-buttons > :only-child,
+.media-action-buttons .ai-prepare-button {
+  grid-column: 1 / -1;
+}
+
+.media-action-buttons .prepare-button {
+  min-width: 0;
+  height: auto;
+  white-space: normal;
+  line-height: 1.25;
 }
 
 .compatibility-note {
@@ -1328,6 +1347,8 @@ video::cue(.en) {
 
 .ai-subtitle-dialog {
   width: min(520px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
+  max-height: calc(100dvh - 28px);
   padding: 0;
   overflow: hidden;
   border: 1px solid rgba(91, 164, 255, 0.34);
@@ -1344,8 +1365,13 @@ video::cue(.en) {
 
 .ai-subtitle-form {
   display: grid;
+  max-height: calc(100vh - 28px);
+  max-height: calc(100dvh - 28px);
+  min-height: 0;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   gap: 0.9rem;
   padding: 20px;
+  overflow: hidden;
 }
 
 .ai-subtitle-form h2 {
@@ -1367,9 +1393,13 @@ video::cue(.en) {
   display: grid;
   gap: 0.55rem;
   min-width: 0;
+  min-height: 0;
   margin: 0;
-  padding: 0;
+  padding: 0 0.35rem 0 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: 0;
+  scrollbar-gutter: stable;
 }
 
 .ai-subtitle-option {
@@ -1401,11 +1431,33 @@ video::cue(.en) {
   line-height: 1.35;
 }
 
+.playback-repair-options .ai-subtitle-option {
+  align-items: start;
+}
+
+.playback-repair-options .ai-subtitle-option span {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.playback-repair-options .ai-subtitle-option b {
+  color: var(--silver);
+  font-size: 0.75rem;
+}
+
+.playback-repair-options .ai-subtitle-option small {
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.4;
+}
+
 .ai-subtitle-actions {
   display: flex;
+  flex: 0 0 auto;
   justify-content: flex-end;
   gap: 0.55rem;
-  padding-top: 0.2rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--line);
 }
 
 .ai-subtitle-confirm {
@@ -1791,6 +1843,7 @@ body::after {
 }
 
 .room-state.archived,
+.compatibility-badge.status-prepared,
 .compatibility-badge.status-processing,
 .compatibility-badge.status-checking {
   border-color: rgba(166, 104, 61, 0.34);
@@ -2528,6 +2581,8 @@ footer {
     width: auto;
     max-width: none;
     min-width: 0;
+    height: var(--cinema-workspace-height, auto);
+    max-height: var(--cinema-workspace-height, none);
     min-height: 0;
     flex-direction: column;
     margin: 0;
@@ -2610,8 +2665,10 @@ footer {
     min-height: 0;
     grid-auto-flow: row;
     grid-auto-columns: auto;
+    grid-auto-rows: max-content;
     grid-template-columns: minmax(0, 1fr);
     align-content: start;
+    align-items: start;
     gap: 10px;
     overflow-x: hidden;
     overflow-y: auto;
@@ -2621,7 +2678,9 @@ footer {
   }
 
   .cinema-page:not(:has(.room-state.active, .room-state.archived)):not(:has(.cinema-workspace.sidebar-open)) .media-card {
+    height: auto;
     min-height: 0;
+    align-self: start;
     border-radius: 16px 6px 16px 6px;
     scroll-snap-align: start;
   }
@@ -2650,6 +2709,8 @@ footer {
   }
 
   .cinema-page:not(:has(.room-state.active, .room-state.archived)):not(:has(.cinema-workspace.sidebar-open)) .library-section.collapsed {
+    height: auto;
+    max-height: none;
     align-self: start;
   }
 

@@ -27,12 +27,11 @@ import {
 import { buildCinemaTick } from './src/cinema-tick.mjs';
 import { parseSingleRange } from './src/http-range.mjs';
 import {
-  assessChromeCompatibility,
-  prepareMediaForChrome,
+  prepareMediaPlayback,
   probeMedia
 } from './src/media-compatibility.mjs';
 import { scanMediaDirectory } from './src/media-library.mjs';
-import { subtitleBundleDirectory } from './src/media-subtitles.mjs';
+import { extractSubtitleStreams, subtitleBundleDirectory } from './src/media-subtitles.mjs';
 import {
   analyzeObservationSegment,
   getObserverStatus
@@ -205,6 +204,7 @@ function publicJob(job) {
     id: job.id,
     kind: job.kind || 'compatibility',
     mediaId: job.mediaId,
+    repairMode: job.repairMode || null,
     replacementMediaId: job.replacementMediaId || null,
     status: job.status,
     stage: job.stage,
@@ -227,7 +227,8 @@ function codecDetails(probe) {
   };
 }
 
-function startCompatibilityJob(item) {
+
+function startCompatibilityJob(item, { repairMode = 'safe' } = {}) {
   const existing = activeJobForMedia(item.id);
   if (existing) return existing;
 
@@ -235,54 +236,38 @@ function startCompatibilityJob(item) {
     id: randomUUID(),
     kind: 'compatibility',
     mediaId: item.id,
+    repairMode,
     status: 'checking',
-    stage: 'Checking codecs',
+    stage: 'Planning minimal repair',
     progress: 0,
     startedAt: new Date().toISOString()
   };
   compatibilityJobs.set(job.id, job);
   setMediaCompatibility(database, item.id, {
     status: 'checking',
-    note: 'Inspecting the file with ffprobe.'
+    note: `Inspecting the file before ${repairMode} playback repair.`
   });
 
   void (async () => {
     try {
       const probe = await probeMedia(item.absolutePath);
-      const assessment = assessChromeCompatibility(probe);
       const details = codecDetails(probe);
-
-      if (assessment.ready) {
-        const result = await prepareMediaForChrome(item.absolutePath);
-        await rescanMedia();
-        setMediaCompatibility(database, item.id, {
-          status: 'ready',
-          ...details,
-          note: assessment.note,
-          processedAt: new Date().toISOString()
-        });
-        job.status = 'done';
-        job.stage = 'Ready';
-        job.progress = 100;
-        job.changed = false;
-        job.subtitleTrackCount = result.subtitleTracks?.length || 0;
-        job.message = job.subtitleTrackCount > 0
-          ? `The file was already compatible. ${job.subtitleTrackCount} subtitle track(s) were preserved for the player.`
-          : 'The file already matched the Chrome playback profile. Nothing was rewritten.';
-        job.finishedAt = new Date().toISOString();
-        return;
-      }
-
       setMediaCompatibility(database, item.id, {
         status: 'processing',
         ...details,
-        note: assessment.note
+        note: `Applying ${repairMode} playback repair.`
       });
       job.status = 'processing';
-      job.stage = 'Preparing Chrome-compatible media';
-      job.message = assessment.note;
+      job.stage = repairMode === 'audio'
+        ? 'Repairing audio only'
+        : repairMode === 'video'
+          ? 'Repairing video only'
+          : repairMode === 'remux'
+            ? 'Rewrapping streams without re-encoding'
+            : 'Preparing safest fallback';
 
-      const result = await prepareMediaForChrome(item.absolutePath, {
+      const result = await prepareMediaPlayback(item.absolutePath, {
+        repairMode,
         onProgress({ percent }) {
           job.progress = percent;
         }
@@ -293,27 +278,25 @@ function startCompatibilityJob(item) {
       if (!outputItem) throw new Error('Prepared media was not found after the library rescan.');
 
       setMediaCompatibility(database, outputItem.id, {
-        status: 'ready',
+        status: 'prepared',
         ...codecDetails(result.probe),
-        note: result.assessment.note,
+        note: result.repairPlan.note,
         processedAt: new Date().toISOString()
       });
 
       job.status = 'done';
-      job.stage = 'Ready';
+      job.stage = 'Retest playback';
       job.progress = 100;
       job.changed = result.changed;
       job.replacementMediaId = outputItem.id;
       job.subtitleTrackCount = result.subtitleTracks?.length || 0;
-      job.message = result.changed
-        ? `Compatibility preparation finished. The video was safely replaced${job.subtitleTrackCount > 0 ? ` and ${job.subtitleTrackCount} subtitle track(s) were preserved` : ''}.`
-        : 'The file was already compatible.';
+      job.message = `${result.repairPlan.note} Test picture and sound in this browser, then press Mark Ready if both are good.${job.subtitleTrackCount > 0 ? ` ${job.subtitleTrackCount} subtitle track(s) were preserved.` : ''}`;
       job.finishedAt = new Date().toISOString();
     } catch (error) {
       console.error('Compatibility preparation failed:', error);
       setMediaCompatibility(database, item.id, {
         status: 'error',
-        note: 'Compatibility preparation failed.',
+        note: 'Playback repair failed.',
         error: error.message
       });
       job.status = 'error';
@@ -583,9 +566,8 @@ const server = http.createServer(async (request, response) => {
         sendJson(response, 404, { error: 'Select a film from the current library before opening a room.' });
         return;
       }
-      const indexed = listIndexedMedia(database).find((candidate) => candidate.id === item.id);
-      if (indexed?.compatibilityStatus !== 'ready') {
-        sendJson(response, 409, { error: 'Prepare this film for Chrome before opening a room.' });
+      if (activeJobForMedia(item.id)) {
+        sendJson(response, 409, { error: 'Wait for playback preparation to finish before opening a room.' });
         return;
       }
       try {
@@ -978,6 +960,32 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    const subtitlePrepareMatch = /^\/api\/media\/([a-f0-9]{24})\/subtitles\/prepare$/.exec(pathname);
+    if (request.method === 'POST' && subtitlePrepareMatch) {
+      const item = mediaById.get(subtitlePrepareMatch[1]);
+      if (!item) {
+        sendJson(response, 404, { error: 'Media not found. Rescan the folder and try again.' });
+        return;
+      }
+      if (activeJobForMedia(item.id)) {
+        sendJson(response, 409, { error: 'Wait for playback preparation to finish before extracting subtitles.' });
+        return;
+      }
+      try {
+        const result = await extractSubtitleStreams(item.absolutePath, { outputMediaPath: item.absolutePath });
+        await rescanMedia();
+        const indexed = listIndexedMedia(database).find((candidate) => candidate.id === item.id);
+        if (!indexed) throw new Error('Media disappeared after subtitle extraction.');
+        sendJson(response, 200, {
+          status: result.status,
+          media: publicMediaItem(indexed)
+        });
+      } catch (error) {
+        sendJson(response, 409, { error: error.message });
+      }
+      return;
+    }
+
     const prepareMatch = /^\/api\/media\/([a-f0-9]{24})\/prepare$/.exec(pathname);
     if (request.method === 'POST' && prepareMatch) {
       const item = mediaById.get(prepareMatch[1]);
@@ -985,7 +993,10 @@ const server = http.createServer(async (request, response) => {
         sendJson(response, 404, { error: 'Media not found. Rescan the folder and try again.' });
         return;
       }
-      const job = startCompatibilityJob(item);
+      const body = await readJsonBody(request);
+      const job = startCompatibilityJob(item, {
+        repairMode: body.repairMode ? String(body.repairMode) : 'safe'
+      });
       sendJson(response, 202, { job: publicJob(job) });
       return;
     }

@@ -153,6 +153,36 @@
       </div>
     </section>
 
+    <dialog class="ai-subtitle-dialog playback-repair-dialog" id="playbackRepairDialog" aria-labelledby="playbackRepairDialogTitle">
+      <form method="dialog" class="ai-subtitle-form playback-repair-form">
+        <p class="eyebrow">PLAYBACK REPAIR</p>
+        <h2 id="playbackRepairDialogTitle">What went wrong?</h2>
+        <p class="ai-subtitle-help">Tell the cinema what you actually observed. It will change only the smallest media layer that needs help, without guessing a browser compatibility table.</p>
+        <fieldset class="ai-subtitle-options playback-repair-options" id="playbackRepairOptions">
+          <label class="ai-subtitle-option">
+            <input type="radio" name="playbackRepair" value="audio">
+            <span><b>Picture works, no sound</b><small>Keep the video and container. Convert only audio.</small></span>
+          </label>
+          <label class="ai-subtitle-option">
+            <input type="radio" name="playbackRepair" value="video">
+            <span><b>Sound works, no picture</b><small>Keep the audio and container. Convert only video.</small></span>
+          </label>
+          <label class="ai-subtitle-option">
+            <input type="radio" name="playbackRepair" value="remux">
+            <span><b>The file will not load</b><small>Try a light MP4 rewrap first. No video or audio re-encoding.</small></span>
+          </label>
+          <label class="ai-subtitle-option">
+            <input type="radio" name="playbackRepair" value="safe">
+            <span><b>Not sure · use the safest fallback</b><small>Use MP4 and only transcode tracks that miss the conservative H.264/AAC profile.</small></span>
+          </label>
+        </fieldset>
+        <div class="ai-subtitle-actions">
+          <button class="room-button" id="playbackRepairCancel" type="submit" value="cancel">Cancel</button>
+          <button class="room-button ai-subtitle-confirm" id="playbackRepairConfirm" type="submit" value="confirm" disabled>Start repair</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog class="ai-subtitle-dialog" id="aiSubtitleDialog" aria-labelledby="aiSubtitleDialogTitle">
       <form method="dialog" class="ai-subtitle-form">
         <p class="eyebrow">AI DIALOGUE TRACK</p>

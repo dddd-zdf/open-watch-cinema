@@ -38,7 +38,7 @@ chmod +x start.command setup-observer.command
 4. Optionally run `setup-observer.command` to install the project-local OpenCV observer.
 5. Open `http://127.0.0.1:4182` if the browser does not open automatically.
 
-While the server is running, press **Rescan** after adding, removing, or renaming files. New films must pass **Check & prepare playback** before they can open a room.
+While the server is running, press **Rescan** after adding, removing, or renaming files. New films are now **direct-play first**: select the film and let the current browser try the original stream. Use **Check & prepare playback** only when that browser cannot load it.
 
 Primary tested input is `.mp4`. The scanner also accepts `.m4v`, `.webm`, `.mov`, and `.mkv` as best-effort inputs; unusual subtitle, multi-audio, HDR, image-subtitle, or container layouts may need user-specific changes.
 
@@ -46,7 +46,7 @@ Primary tested input is `.mp4`. The scanner also accepts `.m4v`, `.webm`, `.mov`
 
 Playback is solo by default. Solo viewing does not create a room, store messages, connect an AI, or expose room-bound AI material.
 
-Select a prepared film and press **Open room** to create one active watch session. A room:
+Select a film and let the browser load the original file. Test both picture and sound; if the film works correctly in the current browser, press **Mark Ready** on its card. That confirmation is stored only for this browser and this exact file version. Then press **Open room** to create one active watch session. A room:
 
 - is bound to one film;
 - allows one unified viewer/AI message stream;
@@ -76,21 +76,24 @@ The browser UI is viewport- and height-aware. On sufficiently wide screens it sw
 - a room-message wing beside the screen while the sidebar is open;
 - a centered focus screen when both wings are closed.
 
-Narrower screens use the compact responsive layout. Viewer name, danmaku preference, subtitle choice, library state, last film, and per-film progress are stored in browser local storage.
+Narrower screens use the compact responsive layout. In the wide browsing layout, the film-library wing follows the cinema workspace height; individual cards keep their natural content height and overflow scrolls inside the library instead of clipping unfinished cards or stretching the page. Viewer name, danmaku preference, subtitle choice, library state, last film, and per-film progress are stored in browser local storage.
 
-## Safe browser compatibility preparation
+## Direct play and minimal playback repair
 
-The target playback profile is MP4 with H.264 video, browser-compatible 4:2:0 chroma sampling, and AAC audio. Preparation does not reduce source resolution unless a downstream fork deliberately adds scaling.
+Playback is **direct-play first**. The original Range stream is offered to the current browser before any compatibility rewrite is required. The application deliberately avoids a browser-brand codec matrix: real playback support can vary with the browser build, operating system, hardware decoding, and the exact media layout. After testing picture and sound, the viewer explicitly presses **Mark Ready**. That confirmation is browser-local and file-fingerprint scoped; it is not written as a universal server compatibility claim. When the film has no existing WebVTT bundle, the server separately probes and extracts supported embedded text subtitles without transcoding the video.
 
-- A file already matching the profile is inspected without rewriting video or audio.
-- H.264 with incompatible audio keeps the video stream and converts only audio to AAC.
-- Other video codecs are converted to H.264 `yuv420p` at source resolution.
-- Non-MP4 containers are prepared as same-name MP4 files on a best-effort basis.
-- The current build keeps the first video stream and first audio stream.
-- Extractable text subtitle streams are converted to WebVTT sidecars before source replacement.
-- Burned-in subtitles stay in the image; image-based subtitle tracks may not be extractable as dialogue.
+If direct playback is not satisfactory, **Check & prepare playback** asks what actually went wrong and applies the smallest requested repair instead of immediately normalizing the whole film:
 
-FFmpeg writes a temporary output beside the source. The temporary file must pass a second FFprobe verification before replacement. If conversion or verification fails, the original source remains available.
+- **Picture works, no sound:** keep the current container and copy the video stream; convert only audio to AAC.
+- **Sound works, no picture:** keep the current container and copy the audio stream; convert only video to H.264 `yuv420p` at source resolution.
+- **The file will not load:** first try a light MP4 remux with both video and audio copied unchanged. This changes the container without recompressing the streams.
+- **Not sure / safest fallback:** use MP4 and the conservative H.264/AAC profile, while still copying any stream that already matches it.
+
+A targeted same-container repair can fail when that container cannot carry the requested replacement codec. The cinema reports the failure instead of silently escalating to a full transcode; the viewer can then choose the safer fallback explicitly. After any successful repair, the card shows **Retest playback** rather than claiming universal compatibility. The prepared file is loaded again, and the viewer presses **Mark Ready** only after picture and sound are confirmed in the current browser.
+
+The current build keeps the first video stream and first audio stream. Extractable text subtitle streams are converted to WebVTT sidecars before source replacement; burned-in subtitles stay in the image, and image-based subtitle tracks may not be extractable as dialogue.
+
+FFmpeg writes a temporary output beside the source. The temporary file must pass repair-specific FFprobe verification before replacement. If conversion or verification fails, the original source remains available.
 
 ## Screen subtitles versus AI dialogue subtitles
 

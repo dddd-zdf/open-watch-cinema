@@ -1,8 +1,10 @@
 import { spawn } from 'node:child_process';
 import { access, rename, rm } from 'node:fs/promises';
-import { basename, dirname, extname, join, parse } from 'node:path';
+import { basename, extname, join, parse } from 'node:path';
 
 import { extractSubtitleStreams } from './media-subtitles.mjs';
+
+const PLAYBACK_REPAIR_MODES = new Set(['remux', 'audio', 'video', 'safe']);
 
 function runAndCapture(command, args, { maxChars = 8 * 1024 * 1024 } = {}) {
   return new Promise((resolvePromise, rejectPromise) => {
@@ -46,7 +48,7 @@ export async function probeMedia(filePath) {
   };
 }
 
-export function assessChromeCompatibility(probe) {
+export function assessSafePlaybackProfile(probe) {
   const containers = new Set(String(probe.formatName || '').split(',').filter(Boolean));
   const mp4Container = ['mov', 'mp4', 'm4a', '3gp', '3g2', 'mj2'].some((name) => containers.has(name));
   const videoReady = probe.video?.codec_name === 'h264'
@@ -55,26 +57,90 @@ export function assessChromeCompatibility(probe) {
   const ready = mp4Container && videoReady && audioReady;
 
   const reasons = [];
-  if (!mp4Container) reasons.push('container will be remuxed to MP4');
-  if (!videoReady) reasons.push('video will be converted to H.264 while keeping the source resolution');
-  if (!audioReady) reasons.push(`audio will be converted from ${probe.audio?.codec_name || 'unknown'} to AAC`);
+  if (!mp4Container) reasons.push('container would be remuxed to MP4 in the conservative fallback');
+  if (!videoReady) reasons.push('video would need H.264 yuv420p for the conservative fallback');
+  if (!audioReady) reasons.push(`audio would need AAC instead of ${probe.audio?.codec_name || 'unknown'}`);
 
   return {
     ready,
     mp4Container,
     videoReady,
     audioReady,
-    note: ready ? 'Ready for Chrome playback.' : reasons.join('; ')
+    note: ready ? 'Conservative fallback profile ready.' : reasons.join('; ')
   };
 }
 
-function makePaths(inputPath) {
+// Backwards-compatible export for older tests and integrations. The runtime no longer
+// treats this conservative profile as a statement about one specific browser.
+export function assessChromeCompatibility(probe) {
+  return assessSafePlaybackProfile(probe);
+}
+
+export function normalizePlaybackRepairMode(value) {
+  const mode = String(value || 'safe').toLowerCase();
+  if (!PLAYBACK_REPAIR_MODES.has(mode)) {
+    throw new Error(`Unknown playback repair mode: ${mode}`);
+  }
+  return mode;
+}
+
+export function buildPlaybackRepairPlan(inputPath, probe, repairMode = 'safe') {
+  const mode = normalizePlaybackRepairMode(repairMode);
+  const sourceExtension = extname(inputPath).toLowerCase() || '.mp4';
+  const safeProfile = assessSafePlaybackProfile(probe);
+
+  if (!probe.video) throw new Error('No video stream was found in this file.');
+  if (mode === 'audio' && !probe.audio) {
+    throw new Error('No audio stream was found, so there is no audio track to repair.');
+  }
+
+  if (mode === 'remux') {
+    return {
+      mode,
+      targetExtension: '.mp4',
+      videoAction: 'copy',
+      audioAction: probe.audio ? 'copy' : 'none',
+      note: 'Light repair: rewrap the existing video and audio streams into MP4 without re-encoding.'
+    };
+  }
+
+  if (mode === 'audio') {
+    return {
+      mode,
+      targetExtension: sourceExtension,
+      videoAction: 'copy',
+      audioAction: 'aac',
+      note: 'Minimal repair: keep the working picture and current container, and convert only audio to AAC.'
+    };
+  }
+
+  if (mode === 'video') {
+    return {
+      mode,
+      targetExtension: sourceExtension,
+      videoAction: 'h264',
+      audioAction: probe.audio ? 'copy' : 'none',
+      note: 'Minimal repair: keep the working audio and current container, and convert only video to H.264.'
+    };
+  }
+
+  return {
+    mode,
+    targetExtension: '.mp4',
+    videoAction: safeProfile.videoReady ? 'copy' : 'h264',
+    audioAction: !probe.audio ? 'none' : safeProfile.audioReady ? 'copy' : 'aac',
+    note: 'Safest fallback: use MP4 while copying any stream that already matches the conservative H.264/AAC profile.'
+  };
+}
+
+function makePaths(inputPath, targetExtension) {
   const parsed = parse(inputPath);
   const stamp = `${Date.now()}-${process.pid}`;
-  const outputPath = extname(inputPath).toLowerCase() === '.mp4'
+  const normalizedExtension = targetExtension.startsWith('.') ? targetExtension : `.${targetExtension}`;
+  const outputPath = extname(inputPath).toLowerCase() === normalizedExtension
     ? inputPath
-    : join(parsed.dir, `${parsed.name}.mp4`);
-  const tempPath = join(parsed.dir, `.${parsed.name}.owc-processing-${stamp}.mp4`);
+    : join(parsed.dir, `${parsed.name}${normalizedExtension}`);
+  const tempPath = join(parsed.dir, `.${parsed.name}.owc-processing-${stamp}${normalizedExtension}`);
   const backupPath = join(parsed.dir, `.${basename(inputPath)}.owc-backup-${stamp}`);
   return { outputPath, tempPath, backupPath };
 }
@@ -88,7 +154,7 @@ async function pathExists(filePath) {
   }
 }
 
-function runFfmpeg(inputPath, tempPath, probe, assessment, onProgress) {
+function runFfmpeg(inputPath, tempPath, probe, plan, onProgress) {
   return new Promise((resolvePromise, rejectPromise) => {
     const args = [
       '-y',
@@ -99,29 +165,26 @@ function runFfmpeg(inputPath, tempPath, probe, assessment, onProgress) {
       '-map', '0:a:0?'
     ];
 
-    if (assessment.videoReady) {
+    if (plan.videoAction === 'copy') {
       args.push('-c:v', 'copy');
     } else {
       args.push('-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-pix_fmt', 'yuv420p');
     }
 
-    if (!probe.audio) {
+    if (plan.audioAction === 'none') {
       args.push('-an');
-    } else if (assessment.audioReady) {
+    } else if (plan.audioAction === 'copy') {
       args.push('-c:a', 'copy');
     } else {
-      const audioBitrate = Number(probe.audio.channels || 2) > 2 ? '384k' : '192k';
+      const audioBitrate = Number(probe.audio?.channels || 2) > 2 ? '384k' : '192k';
       args.push('-c:a', 'aac', '-b:a', audioBitrate);
     }
 
-    args.push(
-      '-map_metadata', '0',
-      '-map_chapters', '0',
-      '-movflags', '+faststart',
-      '-progress', 'pipe:1',
-      '-nostats',
-      tempPath
-    );
+    args.push('-map_metadata', '0', '-map_chapters', '0');
+    if (['.mp4', '.m4v', '.mov'].includes(plan.targetExtension)) {
+      args.push('-movflags', '+faststart');
+    }
+    args.push('-progress', 'pipe:1', '-nostats', tempPath);
 
     const child = spawn('ffmpeg', args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdoutBuffer = '';
@@ -159,6 +222,55 @@ function runFfmpeg(inputPath, tempPath, probe, assessment, onProgress) {
   });
 }
 
+function sameCodec(left, right) {
+  return String(left || '') === String(right || '');
+}
+
+function verifyPlaybackRepair(initialProbe, outputProbe, plan) {
+  if (!outputProbe.video) throw new Error('Prepared file lost its video stream.');
+
+  if (plan.mode === 'safe') {
+    const safeProfile = assessSafePlaybackProfile(outputProbe);
+    if (!safeProfile.ready) {
+      throw new Error(`Prepared file did not pass the conservative fallback verification: ${safeProfile.note}`);
+    }
+    return;
+  }
+
+  if (plan.mode === 'remux') {
+    const containers = new Set(String(outputProbe.formatName || '').split(',').filter(Boolean));
+    if (!['mov', 'mp4', 'm4a', '3gp', '3g2', 'mj2'].some((name) => containers.has(name))) {
+      throw new Error('Remuxed file was not recognized as an MP4-family container.');
+    }
+    if (!sameCodec(initialProbe.video?.codec_name, outputProbe.video?.codec_name)) {
+      throw new Error('Remux unexpectedly changed the video codec.');
+    }
+    if (initialProbe.audio && !sameCodec(initialProbe.audio.codec_name, outputProbe.audio?.codec_name)) {
+      throw new Error('Remux unexpectedly changed the audio codec.');
+    }
+    return;
+  }
+
+  if (plan.mode === 'audio') {
+    if (outputProbe.audio?.codec_name !== 'aac') {
+      throw new Error('Audio-only repair did not produce AAC audio.');
+    }
+    if (!sameCodec(initialProbe.video?.codec_name, outputProbe.video?.codec_name)) {
+      throw new Error('Audio-only repair unexpectedly changed the video codec.');
+    }
+    return;
+  }
+
+  if (plan.mode === 'video') {
+    if (outputProbe.video?.codec_name !== 'h264' || !['yuv420p', 'yuvj420p'].includes(outputProbe.video?.pix_fmt)) {
+      throw new Error('Video-only repair did not produce H.264 yuv420p video.');
+    }
+    if (initialProbe.audio && !sameCodec(initialProbe.audio.codec_name, outputProbe.audio?.codec_name)) {
+      throw new Error('Video-only repair unexpectedly changed the audio codec.');
+    }
+  }
+}
+
 async function replaceOriginal({ inputPath, outputPath, tempPath, backupPath }) {
   if (outputPath !== inputPath && await pathExists(outputPath)) {
     throw new Error(`Cannot replace the source because ${basename(outputPath)} already exists.`);
@@ -175,32 +287,16 @@ async function replaceOriginal({ inputPath, outputPath, tempPath, backupPath }) 
   }
 }
 
-export async function prepareMediaForChrome(inputPath, { onProgress } = {}) {
+export async function prepareMediaPlayback(inputPath, { repairMode = 'safe', onProgress } = {}) {
   const initialProbe = await probeMedia(inputPath);
-  const initialAssessment = assessChromeCompatibility(initialProbe);
-
-  if (initialAssessment.ready) {
-    const subtitleResult = await extractSubtitleStreams(inputPath, { outputMediaPath: inputPath });
-    return {
-      changed: false,
-      outputPath: inputPath,
-      probe: initialProbe,
-      assessment: initialAssessment,
-      subtitleTracks: subtitleResult.tracks,
-      subtitleStatus: subtitleResult.status
-    };
-  }
-
-  const paths = makePaths(inputPath);
+  const plan = buildPlaybackRepairPlan(inputPath, initialProbe, repairMode);
+  const paths = makePaths(inputPath, plan.targetExtension);
   await rm(paths.tempPath, { force: true });
 
   try {
-    await runFfmpeg(inputPath, paths.tempPath, initialProbe, initialAssessment, onProgress);
+    await runFfmpeg(inputPath, paths.tempPath, initialProbe, plan, onProgress);
     const outputProbe = await probeMedia(paths.tempPath);
-    const outputAssessment = assessChromeCompatibility(outputProbe);
-    if (!outputAssessment.ready) {
-      throw new Error(`Prepared file did not pass compatibility verification: ${outputAssessment.note}`);
-    }
+    verifyPlaybackRepair(initialProbe, outputProbe, plan);
 
     const subtitleResult = await extractSubtitleStreams(inputPath, {
       outputMediaPath: paths.outputPath
@@ -210,9 +306,11 @@ export async function prepareMediaForChrome(inputPath, { onProgress } = {}) {
 
     return {
       changed: true,
+      repairMode: plan.mode,
+      repairPlan: plan,
       outputPath: paths.outputPath,
       probe: outputProbe,
-      assessment: outputAssessment,
+      assessment: assessSafePlaybackProfile(outputProbe),
       subtitleTracks: subtitleResult.tracks,
       subtitleStatus: subtitleResult.status
     };
@@ -220,4 +318,13 @@ export async function prepareMediaForChrome(inputPath, { onProgress } = {}) {
     await rm(paths.tempPath, { force: true });
     throw error;
   }
+}
+
+// Backwards-compatible entry point. New callers should use prepareMediaPlayback and
+// pass an explicit symptom-guided repairMode.
+export async function prepareMediaForChrome(inputPath, options = {}) {
+  return prepareMediaPlayback(inputPath, {
+    ...options,
+    repairMode: options.repairMode || 'safe'
+  });
 }
