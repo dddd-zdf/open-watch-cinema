@@ -26,18 +26,57 @@ Choose one stable cinema display name before the first tool call, or use the nam
 
 ## Normal viewing loop
 
-Call `open_watch_cinema_tick` repeatedly while the screening is active.
+## Normal viewing loop
+
+Treat joining an active screening as entering a persistent viewing loop.
+
+A call to `open_watch_cinema_tick` is one iteration of that loop, not a one-shot status check. Once attached to a screening, continue calling `open_watch_cinema_tick` iteratively until an explicit exit condition is reached.
 
 - On the first call, omit cursors unless intentionally resuming saved cursors.
-- After every successful call, store the returned cursors and pass them back unchanged on the next call.
+
+- After every successful call, immediately preserve the returned cursors and pass them unchanged into the next call.
+
 - Maintain cursors separately for each `{cinema instance, roomId, AI identity}`. Another AI's cursors must not replace yours.
+
 - Treat the returned playback state and playhead as authoritative.
+
 - Read only the dialogue, messages, observations, and storyboard selections returned by the spoiler gate. Do not infer future plot or unseen material.
+
 - Respond selectively. Silence is allowed when there is nothing worth saying.
+
 - Post a reaction with `cinema_post_message`, using the current returned playhead as `mediaTimeMs` and your stable name as `senderName`.
-- Continue polling at a cadence chosen by the host application. Poll promptly after a viewer message, seek, pause/resume, or meaningful scene change; avoid wasteful tight loops.
+
+- Posting a message does not end the viewing loop. After posting, continue polling with the latest cursors.
+
+- Receiving and answering a viewer message does not end the viewing loop. After responding, continue polling.
+
+- Completing a requested test, inspection, or other task does not end the viewing loop.
+
+- `more.any: false` does not end the viewing loop. It only means there is no backlog at that instant.
+
+- A paused film does not end the viewing loop. Continue polling while paused so that room messages, resume events, seeks, and other playback changes can still be observed.
+
+- An empty tick does not end the viewing loop.
+
+- Do not emit a final assistant response merely because the current tick has no new information. While attached to an active screening, the default action is another tick.
+
+- The host application may control or delay polling cadence to avoid excessive load, but cadence control must not be interpreted as permission to terminate the viewing loop.
+
+- Poll promptly after a viewer message, seek, pause/resume, or meaningful scene change.
+
+Continue the loop until one of these exit conditions occurs:
+
+1. The viewer explicitly tells this AI to stop polling, leave, disconnect, or otherwise exit the screening.
+2. The room becomes ended or inactive.
+3. The cinema connection fails in a way that prevents further polling.
+
+If the viewer specifies that the stop instruction must come through the cinema room message stream, only a qualifying room message should satisfy condition 1.
 
 A tick is incremental delivery, not a complete transcript. Resetting cursors can replay old material. Losing cursors can skip the continuity your host intended to preserve.
+
+If `more.any` is true, continue consuming backlog immediately using the returned cursors until caught up. Never discard returned cursors in favor of the current playhead merely to catch up.
+
+The returned cursors include `seekVersion`. Always pass it back with the other cursor fields. When `range.seekDetected` is true, the server has rebased media delivery around the seek destination; use the new context and stop treating the skipped interval as current viewing. Continue with the returned cursors so the same seek does not replay its context. Room-message and live-observation cursors remain independent of media rebasing.
 
 ## Seeing a selected frame
 
@@ -45,6 +84,7 @@ A tick may return one or more selected storyboard entries. To actually inspect o
 
 1. Choose only a storyboard entry returned by the current or an already consumed tick.
 2. Call `cinema_get_frame` with its `storyboardRef`, `mediaTimeMs`, and the same `roomId`.
+   Set optional `quality: "hd"` when a closer look is needed. This returns one source frame at that timestamp (the final panel of newly generated storyboards), up to 1920×1080, under the same room spoiler gate.
 3. Use the returned image as visual evidence for that moment.
 4. Fetch frames sparingly: important reactions, visual clues, scene transitions, or moments where dialogue alone is insufficient.
 
@@ -80,4 +120,19 @@ Each client must keep its own identity, cursors, and model context. Coordinate r
 
 ## Ending
 
-Only call `cinema_end_room` when the viewer explicitly ends the screening or clearly delegates that action. Ending archives the room as read-only. A client that merely disconnects should stop polling without ending the shared room.
+Stopping your own viewing loop and ending the shared cinema room are separate actions.
+
+Only call `cinema_end_room` when the viewer explicitly ends the screening or clearly delegates that action. Ending archives the room as read-only.
+
+If the viewer merely tells this AI to stop polling, leave, or disconnect, stop the viewing loop but do not call `cinema_end_room` unless they also asked to end the shared room.
+
+Do not stop polling merely because:
+
+- playback is paused;
+- there are no new messages or media events;
+- `more.any` is false;
+- a requested test has completed;
+- you have posted a reply;
+- you have answered a viewer message.
+
+A client that merely disconnects should leave the shared room intact.

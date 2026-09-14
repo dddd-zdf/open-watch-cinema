@@ -15,7 +15,8 @@ import {
 } from '../src/database.mjs';
 import {
   analyzeObservationSegment,
-  getObserverStatus
+  getObserverStatus,
+  resolveObserverPython
 } from '../src/observation-manager.mjs';
 
 const PROJECT_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -59,6 +60,15 @@ test('OpenCV observer emits timed motion metrics, storyboards, and room archives
   assert.ok(analysis.observations.every((item) => typeof item.metrics.perceptualHash === 'string'));
   assert.ok(analysis.frames.length >= 1);
   await access(join(outputDir, analysis.frames[0].filename));
+  const storyboard = analysis.frames[0];
+  assert.equal(storyboard.mediaTimeMs, 2_500, 'Select the stable sample after the cut.');
+  assert.ok(storyboard.panelTimesMs.every((time) => time <= storyboard.mediaTimeMs));
+  const dimensions = spawnSync('ffprobe', [
+    '-v', 'error', '-show_entries', 'stream=width,height', '-of', 'json',
+    join(outputDir, storyboard.filename)
+  ], { encoding: 'utf8' });
+  assert.equal(dimensions.status, 0, dimensions.stderr);
+  assert.deepEqual(JSON.parse(dimensions.stdout).streams[0], { width: 1544, height: 288 });
 
   const db = openDatabase(databasePath);
   try {
@@ -76,4 +86,12 @@ test('OpenCV observer emits timed motion metrics, storyboards, and room archives
     db.close();
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('storyboard selection and source detail regression checks', async () => {
+  const python = await resolveObserverPython(PROJECT_ROOT);
+  const result = spawnSync(python, ['-m', 'unittest', 'discover', '-s', 'observer', '-p', 'test_*.py'], {
+    cwd: PROJECT_ROOT, encoding: 'utf8', windowsHide: true
+  });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
 });

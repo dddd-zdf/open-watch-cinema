@@ -71,6 +71,8 @@ The adapter exposes twelve tools:
 
 During ordinary viewing, repeatedly call `open_watch_cinema_tick`, set `consumerName` to the same stable AI name used by `cinema_post_message`, and pass the returned `cursors` back unchanged on the next call.
 
+The browser reports completed seeks explicitly. The room persists a `seekVersion`, returned in both `playback` and `cursors`. A changed cursor seek version rebases media delivery to the destination's preceding `initialWindowMs` (15 seconds by default), with `range.seekDetected: true`. Message and live-observation cursors remain independent. Ordinary playback backlog is still delivered incrementally; a large cursor gap alone is not treated as a seek. Every client must return the complete cursor object, including `seekVersion`, to acknowledge the jump once. After upgrading, restart the cinema and MCP adapter and reload the player so seek notifications and the new cursor field are available together.
+
 Matching self-authored AI messages are omitted from the material packet while the message cursor still advances past them. Each compact tick can contain:
 
 - current playback state;
@@ -83,6 +85,10 @@ Matching self-authored AI messages are omitted from the material packet while th
 Raw brightness, RGB, histogram, and other low-level telemetry stays server-side in normal ticks.
 
 Use `cinema_get_frame` only with a `storyboardRef` and `mediaTimeMs` returned by an already consumed tick. It returns real MCP image content plus verified metadata from the room-bound spoiler gate. Use `cinema_read_window` only when a bounded fuller structured inspection is necessary. Real-time replies should be posted through `cinema_post_message`.
+
+`cinema_get_frame` accepts optional `quality: "hd"` to inspect a single source-video frame at the selected timestamp, bounded to 1920×1080 with aspect ratio preserved and no upscaling. Omit quality (or use `"storyboard"`) for the three-panel strip. The HTTP equivalent is `GET /api/rooms/:roomId/ai-frame?storyboardRef=...&mediaTimeMs=...&quality=hd`. Both modes recheck the room playhead on every request, including after rewinds. HD extraction is on demand, uncached, and bounded by a 12-second timeout and 8 MiB output limit.
+
+New storyboards contain source-extracted 512×288 panels with letterboxing and 4-pixel gutters (1544×288 total); detection remains 192×108. Selection ranks sharpness, exposure and optical-flow stability, prefers a settled sample 300–800 ms after a scene cut when available, and prefers perceptually distinct context panels. The final panel is the inspection timestamp; all panels are at or before it. Event delivery is deferred to that timestamp, with the detector time preserved as `eventTimeMs`. At the default 2 fps, the post-cut candidate is 500 ms later; sparse sampling or segment ends can require the event-frame fallback. Static scenes may repeat panels to preserve the strip layout. Existing completed AI packages must be regenerated to gain the new storyboards; they are not rewritten automatically. Source seeks add preparation time, and these non-semantic heuristics cannot guarantee the most meaningful shot.
 
 ## Identity and multiple clients
 
@@ -130,6 +136,6 @@ npm run smoke:frame
 
 `smoke:mcp` performs a real MCP initialize, resource listing/read, tool listing, health call, and media-list call.
 
-`smoke:tick` creates an isolated temporary cinema and AI package, opens a synthetic room, sends timestamped viewer messages, calls `open_watch_cinema_tick` twice through the MCP adapter, verifies cursor advancement and no replay, then removes the fixture.
+`smoke:tick` creates an isolated temporary cinema and AI package, opens a synthetic room, sends timestamped viewer messages, and verifies incremental MCP delivery and frame retrieval. It also exercises forward, backward, repeated, and paused seeks through the playback endpoint and MCP adapter, checking destination context, independent cursor acknowledgement, and no replay, then removes the fixture.
 
 `smoke:frame` verifies the underlying spoiler-gated storyboard image endpoint. The MCP contract tests also verify that `cinema_get_frame` exposes image content only through that room-bound endpoint.

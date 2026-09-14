@@ -129,10 +129,11 @@ function decodeFrameMetadata(value) {
   }
 }
 
-async function cinemaFrameResult(roomId, storyboardRef, mediaTimeMs) {
+async function cinemaFrameResult(roomId, storyboardRef, mediaTimeMs, quality = 'storyboard') {
   const baseUrl = await discoverCinema();
   const query = new URLSearchParams({
     storyboardRef,
+    quality,
     mediaTimeMs: String(mediaTimeMs)
   });
   const response = await fetch(new URL(
@@ -252,6 +253,7 @@ const TOOLS = [
           type: 'object',
           properties: {
             mediaMs: { type: 'integer', minimum: 0 },
+            seekVersion: { type: 'integer', minimum: 0 },
             messageId: { type: 'integer', minimum: 0, default: 0 },
             observationSequence: { type: 'integer', minimum: 0, default: 0 }
           },
@@ -294,12 +296,13 @@ const TOOLS = [
   },
   {
     name: 'cinema_get_frame',
-    description: 'Fetch one spoiler-gated storyboard image selected by open_watch_cinema_tick. Use only a storyboardRef and mediaTimeMs returned by a consumed tick.',
+    description: 'Fetch a spoiler-gated storyboard selected by open_watch_cinema_tick, or use quality hd to inspect its final frame from the source video at up to 1920x1080. Use only a storyboardRef and mediaTimeMs returned by a consumed tick.',
     inputSchema: {
       type: 'object',
       properties: {
         roomId: { type: 'string', format: 'uuid' },
         storyboardRef: { type: 'string', minLength: 1, maxLength: 500 },
+        quality: { type: 'string', enum: ['storyboard', 'hd'], default: 'storyboard' },
         mediaTimeMs: { type: 'integer', minimum: 0 }
       },
       required: ['roomId', 'storyboardRef', 'mediaTimeMs'],
@@ -390,6 +393,9 @@ async function callTool(name, rawArguments) {
       if (Object.hasOwn(cursors, 'mediaMs')) {
         normalizedCursors.mediaMs = requireInteger(cursors.mediaMs, 'cursors.mediaMs');
       }
+      if (Object.hasOwn(cursors, 'seekVersion')) {
+        normalizedCursors.seekVersion = requireInteger(cursors.seekVersion, 'cursors.seekVersion');
+      }
       if (Object.hasOwn(cursors, 'messageId')) {
         normalizedCursors.messageId = requireInteger(cursors.messageId, 'cursors.messageId');
       }
@@ -438,7 +444,9 @@ async function callTool(name, rawArguments) {
       const roomId = requireString(args.roomId, 'roomId', { max: 80 });
       const storyboardRef = requireString(args.storyboardRef, 'storyboardRef', { max: 500 });
       const mediaTimeMs = requireInteger(args.mediaTimeMs, 'mediaTimeMs');
-      return cinemaFrameResult(roomId, storyboardRef, mediaTimeMs);
+      const quality = args.quality ?? 'storyboard';
+      if (!['storyboard', 'hd'].includes(quality)) throw new Error('quality must be storyboard or hd.');
+      return cinemaFrameResult(roomId, storyboardRef, mediaTimeMs, quality);
     }
     case 'cinema_post_message': {
       const roomId = requireString(args.roomId, 'roomId', { max: 80 });
