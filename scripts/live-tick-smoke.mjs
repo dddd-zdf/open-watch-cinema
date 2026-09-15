@@ -393,7 +393,7 @@ try {
   console.log(JSON.stringify({
     ok: true,
     apiVersion: health.apiVersion,
-    mcpVersion: '0.5.0',
+    mcpVersion: '0.6.0',
     roomId: room.id,
     firstCounts: {
       messages: first.tick.newMessages.length,

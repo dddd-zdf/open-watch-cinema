@@ -869,6 +869,12 @@ const server = http.createServer(async (request, response) => {
             playheadMs: Math.max(0, Math.round(Number(room.lastPositionMs) || 0))
           }
         );
+        const latestRoom = getSession(database, room.id);
+        if (!latestRoom || latestRoom.seekVersion !== room.seekVersion
+            || latestRoom.status !== room.status || latestRoom.lastPositionMs < room.lastPositionMs) {
+          sendJson(response, 409, { error: 'Playback changed while reading the frame. Retry at the current playhead.' });
+          return;
+        }
         const metadataHeader = Buffer.from(JSON.stringify(frame.metadata), 'utf8').toString('base64url');
         response.writeHead(200, {
           'content-type': frame.mimeType,

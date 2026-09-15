@@ -59,9 +59,10 @@ function selectStoryboards(observations, maximum) {
       .map(({ importance, dedupKey, ...item }) => item);
   }
 
-  return deduplicated
+  const latest = deduplicated.reduce((last, frame) => frame.mediaTimeMs > last.mediaTimeMs ? frame : last);
+  return [latest, ...deduplicated.filter((frame) => frame !== latest)
     .sort((left, right) => right.importance - left.importance || left.mediaTimeMs - right.mediaTimeMs)
-    .slice(0, maximum)
+    .slice(0, maximum - 1)]
     .sort((left, right) => left.mediaTimeMs - right.mediaTimeMs)
     .map(({ importance, dedupKey, ...item }) => item);
 }

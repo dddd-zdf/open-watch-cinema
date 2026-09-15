@@ -106,6 +106,25 @@ test('cinema tick combines exact messages with compact spoiler-gated viewing mat
   assert.equal(JSON.stringify(tick).includes('perceptualHash'), false);
 });
 
+test('storyboard limit retains the newest view even when earlier action scores higher', () => {
+  const input = {
+    room: fixtureRoom(),
+    targetRange: { fromMs: 0, toMs: 20_000, playheadMs: 20_000 },
+    window: {
+      observations: [1_000, 5_000, 19_000].map((mediaTimeMs, index) => ({
+        fromMs: mediaTimeMs,
+        kind: index < 2 ? 'scene_change' : 'visual_event',
+        sceneScore: index < 2 ? 0.9 : 0,
+        storyboard: { mediaTimeMs, storyboardRef: `frame-${mediaTimeMs}.jpg` }
+      }))
+    }
+  };
+  const tick = buildCinemaTick({ ...input, limits: { maxStoryboards: 2 } });
+  assert.deepEqual(tick.storyboards.map((frame) => frame.mediaTimeMs), [1_000, 19_000]);
+  const single = buildCinemaTick({ ...input, limits: { maxStoryboards: 1 } });
+  assert.deepEqual(single.storyboards.map((frame) => frame.mediaTimeMs), [19_000]);
+});
+
 test('cinema tick reports backlog without dropping independent message and observation cursors', () => {
   const tick = buildCinemaTick({
     room: fixtureRoom(),
