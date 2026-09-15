@@ -361,7 +361,7 @@ function startAiPreparationJob(item, { preferredDialogueTrackId = null } = {}) {
         ? ' Audio descriptions are ready too.'
         : audioStatus === 'source_missing'
           ? ' This film has no audio stream.'
-          : ' Audio descriptions are not prepared. Run the optional audio setup, then choose Add audio descriptions.';
+          : ` Audio descriptions are not prepared. ${result.manifest.audioTrack?.note || 'Run the optional audio setup, then choose Add audio descriptions.'}`;
       job.finishedAt = new Date().toISOString();
     } catch (error) {
       console.error('AI package preparation failed:', error);

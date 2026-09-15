@@ -51,4 +51,6 @@ Audio shares the media cursor and `seekVersion`. Ordinary polling does not repea
 
 ## Validation status
 
-The implementation and installation are prepared for a user-led live test. No audio inference, automated tests, or full-film preparation were run during implementation, at the user's request. Description quality, CPU preparation speed, and the complete player-to-MCP audio flow still need live validation.
+The Windows runtime path repair was verified through the running cinema's audio status endpoint. A two-second film clip completed local CPU inference, and 16 preparation/UI checks passed. The sample output included unwanted question-and-answer text, so description quality still needs refinement. Full-film preparation speed and the complete player-to-MCP audio flow still need live validation.
+
+Windows setup resolves the private environment's base Python executable to its physical path. This prevents a Python installed through a packaged desktop host from working during setup but failing when launched by the cinema outside that host. Audio availability failures retain diagnostic text instead of silently reporting a missing setup.

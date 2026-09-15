@@ -11,6 +11,8 @@ if (-not (Test-Path -LiteralPath $audioPython)) {
     else { & uv venv --python 3.12 $audioEnvironment }
     if ($LASTEXITCODE -ne 0) { throw 'Could not create the private audio environment.' }
 }
+& $audioPython (Join-Path $PSScriptRoot 'scripts/normalize-audio-venv.py')
+if ($LASTEXITCODE -ne 0) { throw 'Could not normalize the audio Python runtime path.' }
 Write-Host 'Installing the local audio runtime (CPU build)...'
 & uv pip install --python $audioPython torch==2.9.1 torchvision==0.24.1 --index-url https://download.pytorch.org/whl/cpu
 if ($LASTEXITCODE -ne 0) { throw 'Audio runtime installation failed.' }

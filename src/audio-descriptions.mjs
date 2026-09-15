@@ -57,16 +57,23 @@ export async function getAudioDescriptionStatus(projectRoot, dataRoot) {
   }
   return new Promise((resolveStatus) => {
     const child = spawn(python, [resolve(projectRoot, 'observer/audio_worker.py'), 'status'], {
-      cwd: projectRoot, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
+      cwd: projectRoot, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, LOCAL_DATA_ROOT: dataRoot },
     });
     let output = '';
-    const timer = setTimeout(() => { child.kill(); }, 15_000);
+    let stderr = '';
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; child.kill(); }, 15_000);
     child.stdout.on('data', (bytes) => { output += bytes; });
-    child.on('error', () => { clearTimeout(timer); resolveStatus({ status: 'unavailable' }); });
-    child.on('close', () => {
+    child.stderr.on('data', (bytes) => { stderr = (stderr + bytes).slice(-1500); });
+    child.on('error', (error) => { clearTimeout(timer); resolveStatus({ status: 'unavailable', note: error.message }); });
+    child.on('close', (code) => {
       clearTimeout(timer);
-      try { resolveStatus(JSON.parse(output)); } catch { resolveStatus({ status: 'unavailable' }); }
+      try { resolveStatus(JSON.parse(output)); } catch {
+        resolveStatus({ status: 'unavailable', note: timedOut
+          ? 'Audio setup check timed out.'
+          : `Audio Python could not start (exit ${code}). ${stderr.trim()}` });
+      }
     });
   });
 }

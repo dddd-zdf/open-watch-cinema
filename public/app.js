@@ -1108,7 +1108,9 @@ async function prepareAiMedia(item, button, statusText) {
   button.textContent = 'Starting AI preparation…';
   statusText.hidden = false;
   statusText.classList.remove('error');
-  statusText.textContent = selectedTrack
+  statusText.textContent = audioOnly
+    ? 'Adding audio descriptions to the existing AI package…'
+    : selectedTrack
     ? `Preparing visual analysis with ${subtitleOptionLabel(selectedTrack)} as the AI dialogue track.`
     : 'No timed subtitle track was found. The AI package will prepare visual analysis only.';
 
