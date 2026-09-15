@@ -1289,7 +1289,8 @@ function renderMedia(items) {
     const aiButton = document.createElement('button');
     aiButton.type = 'button';
     aiButton.className = 'prepare-button ai-prepare-button';
-    const audioReady = ['ready', 'source_missing'].includes(item.aiPackage?.audioTrack?.status);
+    const audioReady = item.aiPackage?.audioTrack?.status === 'source_missing'
+      || (item.aiPackage?.audioTrack?.status === 'ready' && item.aiPackage?.audioTrack?.model === 'Labbeti/conette');
     aiButton.textContent = item.aiPackage?.status === 'ready'
       ? audioReady ? aiPackageLabel(item) : 'Add audio descriptions'
       : 'Prepare for AI viewing';

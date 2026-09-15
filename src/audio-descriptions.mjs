@@ -46,7 +46,7 @@ export function audioTrackState(chunks, metadata = {}) {
 }
 
 function audioPython(projectRoot) {
-  return process.env.OWC_AUDIO_PYTHON || resolve(projectRoot, 'observer', '.audio-venv',
+  return process.env.OWC_AUDIO_PYTHON || resolve(projectRoot, 'observer', '.conette-venv',
     process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
 }
 

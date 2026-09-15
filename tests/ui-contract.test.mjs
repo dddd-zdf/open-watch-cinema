@@ -203,8 +203,9 @@ test('first-time AI preparation asks which discovered dialogue track to use', as
     assert.equal(buttonDisabled({ aiPackage: { status: 'ready', audioTrack: { status } } }, () => ''), false);
   }
   for (const status of ['ready', 'source_missing']) {
-    assert.equal(buttonDisabled({ aiPackage: { status: 'ready', audioTrack: { status } } }, () => ''), true);
+    assert.equal(buttonDisabled({ aiPackage: { status: 'ready', audioTrack: { status, model: 'Labbeti/conette' } } }, () => ''), true);
   }
+  assert.equal(buttonDisabled({ aiPackage: { status: 'ready', audioTrack: { status: 'ready', model: 'Qwen/Qwen2.5-Omni-3B' } } }, () => ''), false);
   assert.equal(buttonDisabled({ aiPackage: { status: 'running' } }, () => ''), true);
   assert.match(server, /preferredDialogueTrackId:\s*body\.dialogueTrackId/);
 });
