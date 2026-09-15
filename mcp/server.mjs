@@ -238,7 +238,7 @@ const TOOLS = [
   },
   {
     name: 'open_watch_cinema_tick',
-    description: 'Poll one compact, spoiler-gated viewing increment containing playback state, new room messages, dialogue, selected storyboards, and compact motion events. Preserve and pass back the returned cursors on the next call. Set consumerName to the same AI name used when posting so self-authored messages are skipped without stalling the cursor. Use cinema_read_window only when a fuller inspection is needed.',
+    description: 'Poll one compact, spoiler-gated viewing increment containing playback state, new room messages, dialogue, selected storyboards, motion events, and prepared audio descriptions including speech delivery. Audio descriptions are fallible local-model interpretations, not direct audio input. Preserve and pass back the returned cursors on the next call. Set consumerName to the same AI name used when posting so self-authored messages are skipped without stalling the cursor. Use cinema_read_window only when a fuller inspection is needed.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -278,7 +278,7 @@ const TOOLS = [
   },
   {
     name: 'cinema_read_window',
-    description: 'Read spoiler-gated visual observations and timed dialogue for a room around the current playhead.',
+    description: 'Read spoiler-gated visual observations, timed dialogue, and prepared audio descriptions around the current playhead. Audio descriptions wait for their full analyzed clip to finish and never use lookahead.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -6,6 +6,8 @@ The primary launch targets are Windows and macOS. The application binds only to 
 
 Human users should begin with [`FOR_USERS.md`](./FOR_USERS.md). MCP hosts and connected models should also read [`mcp/README.md`](./mcp/README.md) and [`mcp/SKILL.md`](./mcp/SKILL.md).
 
+Optional [local audio descriptions](./docs/audio-descriptions.md) add speech delivery, music, ambience, and sound-effect descriptions to the same prepared chunks and AI updates. Run `setup-audio.ps1` on Windows or `bash setup-audio.command` on macOS, then choose **Add audio descriptions** for an existing AI package. Audio inference runs locally; this first version uses a CPU fallback and has not yet been validated in a live film session.
+
 ## Requirements
 
 - Node.js 24 or newer.
