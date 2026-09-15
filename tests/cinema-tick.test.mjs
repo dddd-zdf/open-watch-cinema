@@ -69,7 +69,8 @@ test('cinema tick combines exact messages with compact spoiler-gated viewing mat
           storyboard: {
             mediaTimeMs: 11_500,
             frameReason: 'scene_change',
-            perceptualHash: 'same-hash',
+            perceptualHash: 'f0f0f0f0f0f0f0f0',
+            averageRgb: [0.4, 0.4, 0.4],
             storyboardRef: 'chunks/a/storyboards/one.jpg'
           }
         },
@@ -83,7 +84,8 @@ test('cinema tick combines exact messages with compact spoiler-gated viewing mat
           storyboard: {
             mediaTimeMs: 12_000,
             frameReason: 'motion_peak',
-            perceptualHash: 'same-hash',
+            perceptualHash: 'f0f0f0f0f0f0f0f1',
+            averageRgb: [0.4, 0.4, 0.4],
             storyboardRef: 'chunks/a/storyboards/duplicate.jpg'
           }
         }
@@ -95,7 +97,7 @@ test('cinema tick combines exact messages with compact spoiler-gated viewing mat
   assert.equal(tick.newMessages[0].content, 'Did you notice the stone?');
   assert.equal(tick.dialogueDelta[0].text, 'Look over there.');
   assert.equal(tick.storyboards.length, 1);
-  assert.equal(tick.storyboards[0].storyboardRef, 'chunks/a/storyboards/one.jpg');
+  assert.equal(tick.storyboards[0].storyboardRef, 'chunks/a/storyboards/duplicate.jpg');
   assert.equal(tick.motionEvents.length, 3);
   assert.equal(tick.cursors.mediaMs, 20_000);
   assert.equal(tick.cursors.messageId, 5);

@@ -1,3 +1,5 @@
+import { selectVisualArc, similarComposition } from './storyboard-selection.mjs';
+
 const DEFAULT_LIMITS = Object.freeze({
   maxStoryboards: 5,
   maxMotionEvents: 8
@@ -5,29 +7,6 @@ const DEFAULT_LIMITS = Object.freeze({
 
 function safeInteger(value, fallback = 0) {
   return Number.isSafeInteger(value) && value >= 0 ? value : fallback;
-}
-
-function scoreObservation(observation) {
-  const kindWeight = observation.kind === 'scene_change'
-    ? 2
-    : observation.kind === 'motion_peak'
-      ? 1
-      : 0;
-  return kindWeight
-    + Math.max(0, Number(observation.sceneScore) || 0) * 2
-    + Math.max(0, Number(observation.motionScore) || 0);
-}
-
-function uniqueBy(items, keyOf) {
-  const seen = new Set();
-  const result = [];
-  for (const item of items) {
-    const key = keyOf(item);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(item);
-  }
-  return result;
 }
 
 function selectStoryboards(observations, maximum) {
@@ -44,27 +23,19 @@ function selectStoryboards(observations, maximum) {
         safeInteger(observation.fromMs)
       ),
       frameReason: observation.storyboard.frameReason || observation.kind || 'visual_event',
-      dedupKey: observation.storyboard.perceptualHash || observation.storyboard.storyboardRef,
+      hash: observation.storyboard.perceptualHash,
+      rgb: observation.storyboard.averageRgb || observation.metrics?.averageRgb,
       storyboardRef: observation.storyboard.storyboardRef,
-      importance: scoreObservation(observation)
     }));
-
-  const deduplicated = uniqueBy(
-    candidates,
-    (item) => item.dedupKey
-  );
-  if (deduplicated.length <= maximum) {
-    return deduplicated
-      .sort((left, right) => left.mediaTimeMs - right.mediaTimeMs)
-      .map(({ importance, dedupKey, ...item }) => item);
+  const compositions = [];
+  for (const frame of candidates) {
+    let group = compositions.findIndex((other) => (
+      frame.storyboardRef === other.storyboardRef || similarComposition(frame, other)
+    ));
+    if (group < 0) { group = compositions.length; compositions.push(frame); }
+    frame.visualGroup = group;
   }
-
-  const latest = deduplicated.reduce((last, frame) => frame.mediaTimeMs > last.mediaTimeMs ? frame : last);
-  return [latest, ...deduplicated.filter((frame) => frame !== latest)
-    .sort((left, right) => right.importance - left.importance || left.mediaTimeMs - right.mediaTimeMs)
-    .slice(0, maximum - 1)]
-    .sort((left, right) => left.mediaTimeMs - right.mediaTimeMs)
-    .map(({ importance, dedupKey, ...item }) => item);
+  return selectVisualArc(candidates, maximum).map(({ hash, rgb, ...item }) => item);
 }
 
 function compactMotionEvent(observation, source = 'precomputed') {

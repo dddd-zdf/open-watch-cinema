@@ -1,16 +1,15 @@
+import { selectVisualArc } from '../src/storyboard-selection.mjs';
+
 // Attach a small amount of visual evidence to each incremental MCP response.
 export function selectInlineStoryboards(tick) {
   const fromMs = tick.range.fromMs;
   const throughMs = Math.min(tick.range.toMs, tick.playback.playheadMs);
   const candidates = (tick.storyboards || []).filter((frame) => (
     frame.mediaTimeMs <= throughMs
-    && (tick.range.bootstrap || tick.range.seekDetected || frame.mediaTimeMs > fromMs)
+    // Track windows exclude their end, so an image exactly at fromMs is new.
+    && (tick.range.bootstrap || tick.range.seekDetected || (throughMs > fromMs && frame.mediaTimeMs >= fromMs))
   )).sort((a, b) => a.mediaTimeMs - b.mediaTimeMs);
-  const latest = candidates.at(-1);
-  const transition = candidates.find((frame) => frame.kind === 'scene_change');
-  return [...new Map([transition, latest].filter(Boolean)
-    .map((frame) => [frame.storyboardRef, frame])).values()]
-    .sort((a, b) => a.mediaTimeMs - b.mediaTimeMs);
+  return selectVisualArc(candidates, 2);
 }
 
 export async function buildViewingFeed(payload, { fetchFrame, readRoom }) {

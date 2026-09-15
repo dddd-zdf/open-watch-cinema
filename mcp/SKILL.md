@@ -84,7 +84,7 @@ If the connector rejects `cursors.seekVersion`, its cached tool schema is stale.
 
 ## Understanding the scene
 
-Use dialogue, attached images, and audio captions together. Each MCP tick can include up to two storyboard images after its JSON text: an available scene transition and the latest selected view. `visualEvidence.images` identifies attached or unavailable images; a text label before each image supplies its time and, when available, panel times. Inspect the actual images as part of the normal loop. There is no need to fetch an image already attached.
+Use dialogue, attached images, and audio captions together. Each MCP tick can include up to two storyboard images after its JSON text, selected to show distinct compositions across the window while keeping the latest view. Quiet passages in newly prepared tracks include sparse `visual_heartbeat` images; a heartbeat is refreshed visual context, not a detected scene change. A static window may need only one image. `visualEvidence.images` identifies attached or unavailable images; a text label before each image supplies its time and, when available, panel times. Inspect the actual images as part of the normal loop. There is no need to fetch an image already attached.
 
 Keep a short running understanding of the location, visible action, dialogue, and unresolved questions. Distinguish what you observed from interpretation. In quiet scenes, images can carry the action while subtitles are absent. Use `cinema_get_frame` for additional selected views when an action or transition remains unclear. If images are unavailable, acknowledge the visual gap rather than filling it from the film title or prior knowledge. Do not use knowledge of the film to supply unseen events.
 

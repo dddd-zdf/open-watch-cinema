@@ -314,6 +314,7 @@ def analyse_segment(
     sample_fps: float,
     output_dir: Path | None,
     storyboard_prefix: str,
+    visual_start_ms: int | None = None,
 ) -> dict:
     if not input_path.is_file():
         raise FileNotFoundError(f"Video not found: {input_path}")
@@ -340,10 +341,15 @@ def analyse_segment(
     storyboards = []
     last_event_ms = start_ms - 8_000
     last_storyboard_ms = start_ms - 3_000
+    visual_start_ms = max(start_ms, int(visual_start_ms if visual_start_ms is not None else start_ms))
+    last_visual_ms = None
     previous_motion = 0.0
 
     for index, metrics in enumerate(metrics_list):
         media_time_ms = start_ms + round(index * step_ms)
+        visual_due = (enhanced and output_dir is not None
+                      and media_time_ms >= visual_start_ms
+                      and (last_visual_ms is None or media_time_ms - last_visual_ms >= 12_000))
         reason = None
         if index == 0:
             reason = "segment_start"
@@ -358,6 +364,9 @@ def analyse_segment(
         elif media_time_ms - last_event_ms >= 8_000:
             reason = "heartbeat"
         previous_motion = metrics["motionScore"]
+        detected_event = reason is not None
+        if visual_due and reason not in {"scene_change", "motion_peak"}:
+            reason = "visual_heartbeat"
         if reason is None:
             continue
 
@@ -372,8 +381,8 @@ def analyse_segment(
         if (
             enhanced
             and output_dir is not None
-            and reason in {"scene_change", "motion_peak"}
-            and media_time_ms - last_storyboard_ms >= 2_500
+            and (visual_due or (reason in {"scene_change", "motion_peak"}
+                                and media_time_ms - last_storyboard_ms >= 2_500))
         ):
             filename = f"{storyboard_prefix}-{len(storyboards) + 1:04d}-{media_time_ms}.jpg"
             indices = select_storyboard_indices(metrics_list, index, step_ms, reason)
@@ -386,6 +395,7 @@ def analyse_segment(
                 "panelTimesMs": panel_times_ms,
                 "frameReason": reason,
                 "perceptualHash": selected_metrics.get("perceptualHash"),
+                "averageRgb": selected_metrics.get("averageRgb"),
             }
             # Deliver the event only when every panel has been seen. Keep the
             # original detector timestamp for clients inspecting event timing.
@@ -394,10 +404,15 @@ def analyse_segment(
             observation["toMs"] = min(start_ms + duration_ms, panel_times_ms[-1] + round(step_ms))
             observation["storyboard"] = frame_info
             storyboards.append(frame_info)
-            last_storyboard_ms = media_time_ms
+            # A fallback must not suppress a real event that arrives just after it.
+            if reason in {"scene_change", "motion_peak"}:
+                last_storyboard_ms = media_time_ms
+            if panel_times_ms[-1] >= visual_start_ms:
+                last_visual_ms = panel_times_ms[-1]
 
         observations.append(observation)
-        last_event_ms = media_time_ms
+        if detected_event:
+            last_event_ms = media_time_ms
 
     return {
         "ok": True,
@@ -423,6 +438,7 @@ def build_parser() -> argparse.ArgumentParser:
     analyse.add_argument("--sample-fps", type=float, default=2.0)
     analyse.add_argument("--output-dir")
     analyse.add_argument("--storyboard-prefix", default="segment")
+    analyse.add_argument("--visual-start-ms", type=int)
     return parser
 
 
@@ -436,6 +452,7 @@ def main() -> int:
             args.sample_fps,
             Path(args.output_dir) if args.output_dir else None,
             args.storyboard_prefix,
+            args.visual_start_ms,
         )
         print(json.dumps(payload, ensure_ascii=False))
         return 0

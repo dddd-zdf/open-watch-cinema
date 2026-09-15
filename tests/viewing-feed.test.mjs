@@ -31,6 +31,16 @@ test('paused polling does not reattach images; seeking can replay destination co
   assert.deepEqual(selectInlineStoryboards(tick).map((x) => x.mediaTimeMs), [12_000, 19_000]);
 });
 
+test('image exactly at the new range start is delivered once, including a heartbeat', () => {
+  const { tick } = fixture();
+  tick.storyboards = [frame(10000, 'visual_heartbeat')];
+  assert.deepEqual(selectInlineStoryboards(tick).map((x) => x.mediaTimeMs), [10000]);
+  tick.range.fromMs = 10500;
+  assert.deepEqual(selectInlineStoryboards(tick), []);
+  tick.range.fromMs = tick.range.toMs = 10000;
+  assert.deepEqual(selectInlineStoryboards(tick), []);
+});
+
 test('tick retains complete cursors and attaches labelled images with audio interpretation guidance', async () => {
   const payload = fixture();
   const result = await buildViewingFeed(payload, { fetchFrame, readRoom });

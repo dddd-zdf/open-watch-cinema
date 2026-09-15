@@ -1,21 +1,59 @@
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-from worker import decode_frames, select_storyboard_indices, write_storyboard
+from worker import analyse_segment, decode_frames, select_storyboard_indices, write_storyboard
 
 
 def metric(**changes):
     return dict(dict(sharpness=100, clippedFraction=0, brightness=0.5,
-                     motionMeanPixels=0, sceneScore=0, perceptualHash="ffffffffffffffff",
+                     motionMeanPixels=0, sceneScore=0, motionScore=0, perceptualHash="ffffffffffffffff",
                      averageRgb=[0.5, 0.5, 0.5]), **changes)
 
 
 class StoryboardTests(unittest.TestCase):
+    def analyse_samples(self, samples, start_ms=0, visual_start_ms=None):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source.mp4"
+            source.touch()
+            with patch("worker.decode_frames", return_value=[None] * len(samples)), \
+                 patch("worker.opencv_metrics", side_effect=[(item, {}) for item in samples]), \
+                 patch("worker.write_storyboard"):
+                return analyse_segment(source, start_ms, len(samples) * 500, 2, root, "test", visual_start_ms)
+
+    def test_static_scene_gets_sparse_heartbeat_images(self):
+        result = self.analyse_samples([metric() for _ in range(80)])
+        self.assertEqual([frame["mediaTimeMs"] for frame in result["frames"]], [0, 12000, 24000, 36000])
+        self.assertTrue(all(frame["frameReason"] == "visual_heartbeat" for frame in result["frames"]))
+        self.assertTrue(all(max(frame["panelTimesMs"]) <= frame["mediaTimeMs"] for frame in result["frames"]))
+
+    def test_real_cut_after_heartbeat_is_not_suppressed_and_resets_deadline(self):
+        samples = [metric() for _ in range(58)]
+        samples[4] = metric(sceneScore=0.9)
+        result = self.analyse_samples(samples)
+        self.assertEqual([(frame["mediaTimeMs"], frame["frameReason"]) for frame in result["frames"]],
+                         [(0, "visual_heartbeat"), (2500, "scene_change"),
+                          (14500, "visual_heartbeat"), (26500, "visual_heartbeat")])
+
+    def test_chunk_ownership_starts_with_a_revealed_image(self):
+        result = self.analyse_samples([metric() for _ in range(34)], start_ms=296000, visual_start_ms=298000)
+        times = [frame["mediaTimeMs"] for frame in result["frames"]]
+        self.assertEqual(times, [298000, 310000])
+        self.assertTrue(all(time >= 298000 for time in times))
+
+    def test_extra_visual_heartbeat_does_not_throttle_motion_detection(self):
+        samples = [metric() for _ in range(30)]
+        samples[25] = metric(motionScore=0.3)
+        result = self.analyse_samples(samples)
+        self.assertIn((12500, "motion_peak"),
+                      [(frame["mediaTimeMs"], frame["frameReason"]) for frame in result["frames"]])
+
     def test_post_cut_stability(self):
         samples = [metric(), metric(sceneScore=0.9), metric(), metric()]
         self.assertEqual(select_storyboard_indices(samples, 1, 500, "scene_change")[-1], 2)
