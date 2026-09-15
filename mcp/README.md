@@ -71,6 +71,8 @@ The adapter exposes twelve tools:
 
 During ordinary viewing, repeatedly call `open_watch_cinema_tick`, set `consumerName` to the same stable AI name used by `cinema_post_message`, and pass the returned `cursors` back unchanged on the next call.
 
+Keep the viewing turn actively polling until the viewer presses **Stop in the chat**, explicitly asks to leave, the room ends, or polling becomes impossible. Pauses, empty ticks, replies, and completed test checks do not finish the loop. Chat Stop cancels the AI's execution without ending the shared room; resume only when asked. This instruction cannot extend host execution limits or provide background polling after a turn ends.
+
 The browser reports completed seeks explicitly. The room persists a `seekVersion`, returned in both `playback` and `cursors`. A changed cursor seek version rebases media delivery to the destination's preceding `initialWindowMs` (15 seconds by default), with `range.seekDetected: true`. Message and live-observation cursors remain independent. Ordinary playback backlog is still delivered incrementally; a large cursor gap alone is not treated as a seek. Every client must return the complete cursor object, including `seekVersion`, to acknowledge the jump once. After upgrading, restart the cinema and MCP adapter and reload the player so seek notifications and the new cursor field are available together.
 
 Matching self-authored AI messages are omitted from the material packet while the message cursor still advances past them. Each compact tick can contain:

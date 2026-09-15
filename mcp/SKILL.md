@@ -26,11 +26,11 @@ Choose one stable cinema display name before the first tool call, or use the nam
 
 ## Normal viewing loop
 
-## Normal viewing loop
-
 Treat joining an active screening as entering a persistent viewing loop.
 
 A call to `open_watch_cinema_tick` is one iteration of that loop, not a one-shot status check. Once attached to a screening, continue calling `open_watch_cinema_tick` iteratively until an explicit exit condition is reached.
+
+The viewer's normal way to finish is pressing **Stop in the chat**. Keep the current turn actively polling until then, subject to the exit conditions below. Do not ask whether to continue or finish with a summary while the viewing loop is still active. Brief progress updates and room reactions should be followed by another tick.
 
 - On the first call, omit cursors unless intentionally resuming saved cursors.
 
@@ -66,11 +66,13 @@ A call to `open_watch_cinema_tick` is one iteration of that loop, not a one-shot
 
 Continue the loop until one of these exit conditions occurs:
 
-1. The viewer explicitly tells this AI to stop polling, leave, disconnect, or otherwise exit the screening.
+1. The viewer presses Stop in the chat, or explicitly tells this AI to stop polling, leave, disconnect, or otherwise exit the screening.
 2. The room becomes ended or inactive.
 3. The cinema connection fails in a way that prevents further polling.
 
-If the viewer specifies that the stop instruction must come through the cinema room message stream, only a qualifying room message should satisfy condition 1.
+Chat Stop is host cancellation; it does not need to appear in a cinema tick or room message. Always respect cancellation, even if the viewer previously requested a stop message through the room. Do not restart polling after cancellation unless the viewer asks to resume.
+
+These instructions apply while the host allows the current turn to execute. They cannot override host execution limits or keep tools running after a turn ends. Do not claim to be watching in the background, create an automation, or start another session to bypass an interruption. If the host requires the turn to end and a reply is possible, state that polling has stopped.
 
 A tick is incremental delivery, not a complete transcript. Resetting cursors can replay old material. Losing cursors can skip the continuity your host intended to preserve.
 
@@ -129,6 +131,8 @@ Each client must keep its own identity, cursors, and model context. Coordinate r
 ## Ending
 
 Stopping your own viewing loop and ending the shared cinema room are separate actions.
+
+Pressing Stop in the chat stops this AI's execution and leaves the shared room intact. It requires no cleanup tool call and does not authorize `cinema_end_room`.
 
 Only call `cinema_end_room` when the viewer explicitly ends the screening or clearly delegates that action. Ending archives the room as read-only.
 
