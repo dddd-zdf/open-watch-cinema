@@ -712,7 +712,7 @@ function aiPackageLabel(item) {
     const mode = aiPackage.aiReadiness?.experienceMode;
     if (mode === 'visual_only') return 'AI ready · visual only';
     if (mode === 'dialogue_only') return 'AI ready · dialogue only';
-    return 'AI package ready';
+    return aiPackage.audioTrack?.status === 'ready' ? 'AI ready · audio described' : 'AI package ready';
   }
   if (aiPackage.status === 'running') {
     return `AI preparing · ${Math.round(aiPackage.progress?.percent || 0)}%`;
@@ -1098,8 +1098,9 @@ async function pollAiPreparation(jobId, button, statusText) {
 }
 
 async function prepareAiMedia(item, button, statusText) {
-  await discoverEmbeddedSubtitles(item);
-  const dialogueTrackId = await chooseAiDialogueTrack(item);
+  const audioOnly = item.aiPackage?.status === 'ready';
+  if (!audioOnly) await discoverEmbeddedSubtitles(item);
+  const dialogueTrackId = audioOnly ? preferredAiDialogueTrackId(item) : await chooseAiDialogueTrack(item);
   if (dialogueTrackId === undefined) return;
 
   const selectedTrack = (item.subtitleTracks || []).find((track) => track.id === dialogueTrackId) || null;
@@ -1107,7 +1108,9 @@ async function prepareAiMedia(item, button, statusText) {
   button.textContent = 'Starting AI preparation…';
   statusText.hidden = false;
   statusText.classList.remove('error');
-  statusText.textContent = selectedTrack
+  statusText.textContent = audioOnly
+    ? 'Adding audio descriptions to the existing AI package…'
+    : selectedTrack
     ? `Preparing visual analysis with ${subtitleOptionLabel(selectedTrack)} as the AI dialogue track.`
     : 'No timed subtitle track was found. The AI package will prepare visual analysis only.';
 
@@ -1286,10 +1289,13 @@ function renderMedia(items) {
     const aiButton = document.createElement('button');
     aiButton.type = 'button';
     aiButton.className = 'prepare-button ai-prepare-button';
+    const audioReady = item.aiPackage?.audioTrack?.status === 'source_missing'
+      || (item.aiPackage?.audioTrack?.status === 'ready' && item.aiPackage?.audioTrack?.model === 'Labbeti/conette');
     aiButton.textContent = item.aiPackage?.status === 'ready'
-      ? aiPackageLabel(item)
+      ? audioReady ? aiPackageLabel(item) : 'Add audio descriptions'
       : 'Prepare for AI viewing';
-    aiButton.disabled = item.aiPackage?.status === 'ready' || item.aiPackage?.status === 'running';
+    aiButton.disabled = (item.aiPackage?.status === 'ready' && audioReady)
+      || item.aiPackage?.status === 'running';
     aiButton.addEventListener('click', () => prepareAiMedia(item, aiButton, statusText));
     actionButtons.append(aiButton);
 
@@ -1297,7 +1303,13 @@ function renderMedia(items) {
     const aiWarning = aiExperienceWarning(item);
     aiStatus.className = 'ai-package-note';
     aiStatus.classList.toggle('warning', Boolean(aiWarning));
-    aiStatus.textContent = aiWarning || aiPackageLabel(item);
+    aiStatus.textContent = aiWarning || (item.aiPackage?.audioTrack?.status === 'failed'
+      ? 'Audio descriptions were interrupted. Add audio descriptions to resume.'
+      : item.aiPackage?.audioTrack?.status === 'running'
+        ? 'Preparing audio descriptions…'
+        : item.aiPackage?.status === 'ready' && !audioReady
+          ? 'Visuals ready · audio descriptions not prepared'
+          : aiPackageLabel(item));
 
     actionArea.append(actionButtons, aiStatus, statusText);
     card.append(actionArea);

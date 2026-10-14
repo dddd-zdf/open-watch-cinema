@@ -166,6 +166,7 @@ export function buildCinemaTick({
     targetRange.playheadMs > requestedToMs
     || window.hasMore
     || window.dialogueHasMore
+    || window.audioHasMore
   );
   const lastMessageId = exactMessages.length > 0
     ? safeInteger(exactMessages.at(-1).id, safeInteger(inputCursors.messageId))
@@ -201,6 +202,11 @@ export function buildCinemaTick({
     },
     newMessages: deliveredMessages.map(compactMessage),
     dialogueDelta: dialogue.map(compactDialogue),
+    audioDescriptions: (window.audioDescriptions || [])
+      .filter((item) => item.availableAtMs <= Math.min(requestedToMs, targetRange.playheadMs))
+      .map(({ id, fromMs, toMs, availableAtMs, text, source, sourceChunkId }) => ({
+        id, fromMs, toMs, availableAtMs, text, source, sourceChunkId
+      })),
     storyboards: selectStoryboards(observations, maxStoryboards),
     motionEvents: selectMotionEvents(
       observations,
@@ -227,6 +233,7 @@ export function buildCinemaTick({
     availability: {
       visualStatus: window.visualStatus || null,
       dialogueTrack: window.dialogueTrack || null,
+      audioTrack: window.audioTrack || { status: 'not_prepared' },
       aiReadiness: window.aiReadiness || null
     },
     compacted: {

@@ -41,12 +41,13 @@ test('image exactly at the new range start is delivered once, including a heartb
   assert.deepEqual(selectInlineStoryboards(tick), []);
 });
 
-test('tick retains complete cursors and attaches labelled images', async () => {
+test('tick retains complete cursors and attaches labelled images with audio interpretation guidance', async () => {
   const payload = fixture();
   const result = await buildViewingFeed(payload, { fetchFrame, readRoom });
   const enriched = JSON.parse(result.mcpContent[0].text).tick;
   assert.deepEqual(enriched.cursors, payload.tick.cursors);
   assert.equal(result.mcpContent.filter((x) => x.type === 'image').length, 2);
+  assert.equal(enriched.audioEvidence.reliability, 'unverified');
   assert.deepEqual(enriched.visualEvidence.images.map((x) => x.status), ['attached', 'attached']);
 });
 

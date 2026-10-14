@@ -44,7 +44,9 @@ export async function buildViewingFeed(payload, { fetchFrame, readRoom }) {
     }
   }
   const enriched = { ...payload, tick: { ...tick,
-    visualEvidence: { images, maxImages: 2, note: 'Inspect attached images alongside dialogue. These are selected moments, not continuous video.' }
+    visualEvidence: { images, maxImages: 2, note: 'Inspect attached images alongside dialogue. These are selected moments, not continuous video.' },
+    audioEvidence: { kind: 'generated_caption', reliability: 'unverified',
+      guidance: 'Audio captions describe possible sounds. They do not establish the visible setting, who is speaking, motives, or emotion. Sounds may come from a game, recording, or soundtrack. Ground scene understanding in images and dialogue; leave conflicts uncertain.' }
   } };
   return { mcpContent: [{ type: 'text', text: JSON.stringify(enriched, null, 2) }, ...attachments] };
 }
