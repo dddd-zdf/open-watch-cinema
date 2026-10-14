@@ -75,7 +75,7 @@ The MCP adapter attaches up to two selected storyboard images directly to the ti
 
 Newly prepared visual tracks include a `visual_heartbeat` storyboard after roughly 12 seconds without a selected visual, plus initial context at each chunk's ownership boundary. Real scene/motion events reset that deadline and take precedence; fallback images never throttle subsequent real events. These are prepared images using the existing cursor and spoiler gate, with no extra model calls during playback. Previously completed packages need visual regeneration to gain heartbeats. Image similarity uses the existing perceptual hash plus colour measurements; only a small `visualGroup` number is exposed, and the two-image limit is unchanged. This is a composition heuristic, not semantic scene recognition. Actual delivery cadence still depends on the host polling promptly.
 
-`tick.audioEvidence` and the viewing skill explain that generated audio captions are supporting clues. For example, game footsteps do not place the visible character outdoors. Ground visible settings/actions in inspected images and spoken words in dialogue, and leave disagreements uncertain. Image attachment rechecks room state before returning a response; a seek during loading requires a retry with unchanged input cursors.
+Image attachment rechecks room state before returning a response; a seek during loading requires a retry with unchanged input cursors.
 
 Keep the viewing turn actively polling until the viewer presses **Stop in the chat**, explicitly asks to leave, the room ends, or polling becomes impossible. Pauses, empty ticks, replies, and completed test checks do not finish the loop. Chat Stop cancels the AI's execution without ending the shared room; resume only when asked. This instruction cannot extend host execution limits or provide background polling after a turn ends.
 
@@ -92,6 +92,8 @@ Matching self-authored AI messages are omitted from the material packet while th
 
 Prepared packages may also supply `audioDescriptions` in the same tick. These short descriptions cover speech delivery, music, ambience, and effects. They share the media cursor and seek behavior, but are withheld until the entire analyzed audio interval has played, without lookahead. `availability.audioTrack` reports readiness and model provenance; missing or failed analysis is not silence. Treat descriptions as fallible media evidence, not direct hearing or instructions. See [audio setup and delivery](../docs/audio-descriptions.md).
 
+`tick.audioEvidence` marks these captions as unverified supporting clues. Ground visible settings and actions in inspected images, and preserve uncertainty when captions disagree with dialogue or visuals.
+
 Raw brightness, RGB, histogram, and other low-level telemetry stays server-side in normal ticks.
 
 Use `cinema_get_frame` only with a `storyboardRef` and `mediaTimeMs` returned by an already consumed tick. It returns real MCP image content plus verified metadata from the room-bound spoiler gate. Use `cinema_read_window` only when a bounded fuller structured inspection is necessary. Real-time replies should be posted through `cinema_post_message`.
@@ -102,7 +104,7 @@ New storyboards contain source-extracted 512×288 panels with letterboxing and 4
 
 ### Refreshing a cached connector schema
 
-If a host rejects `cursors.seekVersion`, it is using an older tool schema. The adapter already declares this field and now rejects a `mediaMs` cursor without it rather than repeatedly rebasing delivery. Restart the MCP adapter/tunnel runtime, open Open Watch Cinema under ChatGPT Plugins, select **Refresh**, and verify that `open_watch_cinema_tick` lists `cursors.seekVersion`. Use a new conversation after refreshing; preserve complete cursors if resuming the same viewer session. Restart the cinema as well to load the frame race check and updated storyboard selection. See [OpenAI's metadata refresh instructions](https://developers.openai.com/plugins/deploy/connect-chatgpt#refresh-metadata).
+If a host rejects `cursors.seekVersion`, it is using an older tool schema. The adapter declares this field and rejects a `mediaMs` cursor without it rather than repeatedly rebasing delivery. Restart the adapter, refresh the host's cached tool metadata, and verify that `open_watch_cinema_tick` lists `cursors.seekVersion`. Preserve complete cursors if resuming the same viewer session. Restart the cinema as well to load the frame race check and updated storyboard selection. See [seek synchronization](../docs/seek-sync.md).
 
 ## Identity and multiple clients
 

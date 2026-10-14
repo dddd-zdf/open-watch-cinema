@@ -277,6 +277,13 @@ try {
       }
     }
   }));
+  const incompleteCursor = await client.request('tools/call', {
+    name: 'open_watch_cinema_tick',
+    arguments: { roomId: room.id, consumerName: 'Elias', cursors: { mediaMs: first.tick.cursors.mediaMs } }
+  });
+  assert.equal(incompleteCursor.result?.isError, true);
+  assert.match(JSON.stringify(incompleteCursor), /mediaMs requires seekVersion/);
+
   const second = toolPayload(await client.request('tools/call', {
     name: 'open_watch_cinema_tick',
     arguments: {

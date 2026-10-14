@@ -51,6 +51,21 @@ Audio shares the media cursor and `seekVersion`. Ordinary polling does not repea
 
 ## Validation status
 
-CoNeTTE completed the separate three-clip benchmark, and the viewer preferred its sample descriptions. The production switch and offline resource setup have not been tested, at the viewer's request. Full-film preparation speed and the complete player-to-MCP audio flow still need live validation. Preparation still processes the full film; scheduling only current and upcoming chunks remains a separate improvement.
+The separate three-clip benchmark is retained as a historical exploratory result in [audio-benchmark.md](audio-benchmark.md). Windows CPU preparation completed on September 15, 2026 using the pinned CoNeTTE revision `f7c6d0338832ee22df1e7c9d579cf5911a1a115d`: all 26 of 26 chunks for one test film were ready, with 761 descriptions. In observed room checks that day, descriptions arrived through MCP without duplicate or early releases; pause/resume behaved as expected, and the latest seek destination was delivered. Two seek changes between polls did not independently confirm both landings. The session also encountered an outdated cached `seekVersion` schema; see [the cursor upgrade guidance](seek-sync.md). A later companion viewing session on September 18 reached the closing sequence.
+
+These observations do not establish caption accuracy, nuanced emotional delivery, all-platform support, or a full-film throughput rate. Preparation elapsed time was not a throughput benchmark. The Windows CPU path is the validated path available here; macOS setup, GPU acceleration, clean-machine setup, and network-isolated/offline setup were not live validated. Preparation still processes the full film; scheduling only current and upcoming chunks remains a separate improvement.
+
+## Manual acceptance checklist
+
+Use a test film and opt in to audio during **Prepare for AI viewing** or **Add audio descriptions**.
+
+- Let one audio clip play to its end and confirm its description is released at the clip end, not earlier.
+- Pause and poll repeatedly; confirm completed descriptions do not repeat. Resume and confirm the next completed clip arrives once.
+- Seek forward, then test a seek back separately; confirm each destination's descriptions are released only after its clips complete.
+- In a temporary test instance with no audio setup, prepare a new test film; confirm visual and dialogue readiness still succeeds and the audio status remains diagnostic. Do not remove a working audio environment or overwrite an existing film package for this check.
+
+Automated regression coverage in `tests/audio-descriptions.test.mjs` validates complete chunk coverage, completion timestamps, no-lookahead release, acknowledged no-replay behavior, and retention of undelivered captions when item limits are reached. These tests use synthetic packages without model downloads or inference. Run `node --test tests/audio-descriptions.test.mjs` or `npm test`.
+
+The optional runtime uses a separate Python 3.10 environment with CoNeTTE 0.4.0, PyTorch 1.13.1, and Transformers 4.30.2. This older dependency stack is a maintenance limitation; it does not change the visual observer's environment or add npm dependencies. Setup downloads packages, the pinned model, and tokenizer resources. Subsequent inference is configured to load local resources. No model weights or prepared film assets are committed to the repository. The provider's [model card](https://huggingface.co/Labbeti/conette) describes its training and intended captioning interface; this integration has not established film-specific caption accuracy.
 
 Windows setup resolves the private environment's base Python executable to its physical path. This prevents a Python installed through a packaged desktop host from working during setup but failing when launched by the cinema outside that host. Audio availability failures retain diagnostic text instead of silently reporting a missing setup.

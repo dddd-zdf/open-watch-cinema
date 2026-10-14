@@ -47,8 +47,8 @@ test('tick retains complete cursors and attaches labelled images with audio inte
   const enriched = JSON.parse(result.mcpContent[0].text).tick;
   assert.deepEqual(enriched.cursors, payload.tick.cursors);
   assert.equal(result.mcpContent.filter((x) => x.type === 'image').length, 2);
-  assert.deepEqual(enriched.visualEvidence.images.map((x) => x.status), ['attached', 'attached']);
   assert.equal(enriched.audioEvidence.reliability, 'unverified');
+  assert.deepEqual(enriched.visualEvidence.images.map((x) => x.status), ['attached', 'attached']);
 });
 
 test('missing images are explicit and do not discard dialogue or cursors', async () => {
@@ -67,4 +67,17 @@ test('seek during image fetch rejects the entire stale packet', async () => {
   await assert.rejects(buildViewingFeed(fixture(), {
     fetchFrame, readRoom: async () => ({ status: 'active', seekVersion: 4, lastPositionMs: 40_000 })
   }), /same input cursors/);
+});
+
+test('oversized inline images remain explicit gaps without losing cursors', async () => {
+  const payload = fixture();
+  const result = await buildViewingFeed(payload, {
+    fetchFrame: async () => ({ mcpContent: [
+      { type: 'image', mimeType: 'image/jpeg', data: 'A'.repeat(2 * 1024 * 1024 + 1) }
+    ] }), readRoom
+  });
+  const tick = JSON.parse(result.mcpContent[0].text).tick;
+  assert.equal(result.mcpContent.filter((item) => item.type === 'image').length, 0);
+  assert.ok(tick.visualEvidence.images.every((item) => item.status === 'unavailable'));
+  assert.deepEqual(tick.cursors, payload.tick.cursors);
 });
