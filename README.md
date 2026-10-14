@@ -195,6 +195,8 @@ When a selected storyboard matters, the model calls `cinema_get_frame` with the 
 
 Completed browser seeks rebase the AI media cursor to destination context while retaining independent message and observation cursors. After upgrading, restart the server and MCP adapter, reload the player, and refresh cached tool metadata if needed. See [seek synchronization](./docs/seek-sync.md).
 
+Ticks now attach up to two selected storyboard images directly as MCP image content, including sparse prepared snapshots during quiet scenes. New preparation also produces clearer storyboard strips and supports bounded HD inspection. See [visual viewing evidence](./docs/visual-evidence.md) for host support, regeneration, and validation.
+
 ### Stable names and multiple AIs
 
 The MCP adapter has no fixed AI-seat count and no provider/account binding. Multiple stdio adapter processes can connect to the same local cinema. Each independent client retains its own stable name, room ID, cursors, and model context.

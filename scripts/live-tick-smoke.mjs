@@ -313,6 +313,20 @@ try {
   if (!frameMetadata?.text?.includes('scene.jpg')) {
     throw new Error('MCP frame tool did not return verified storyboard metadata.');
   }
+  const hdResponse = await client.request('tools/call', {
+    name: 'cinema_get_frame',
+    arguments: {
+      roomId: room.id, storyboardRef: selectedStoryboard.storyboardRef,
+      mediaTimeMs: selectedStoryboard.mediaTimeMs, quality: 'hd'
+    }
+  });
+  const hdMetadata = toolPayload(hdResponse);
+  const hdImage = hdResponse.result?.content?.find((item) => item.type === 'image');
+  if (hdMetadata.quality !== 'hd' || hdImage?.mimeType !== 'image/jpeg'
+      || Buffer.from(hdImage.data, 'base64').length <= 4) {
+    throw new Error('MCP HD inspection did not return a source image and verified quality.');
+  }
+
   const serialized = JSON.stringify(first.tick);
   for (const forbidden of ['brightness', 'averageRgb', 'histogramDistance', 'perceptualHash']) {
     if (serialized.includes(`\"${forbidden}\"`)) {
@@ -386,7 +400,7 @@ try {
   console.log(JSON.stringify({
     ok: true,
     apiVersion: health.apiVersion,
-    mcpVersion: '0.5.0',
+    mcpVersion: '0.6.0',
     roomId: room.id,
     firstCounts: {
       messages: first.tick.newMessages.length,
